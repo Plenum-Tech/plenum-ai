@@ -41,6 +41,9 @@ pub struct MemoryStack {
     pub retrieve: usize,
     /// A passage is only given when its cosine with the question is at least this.
     pub min_similarity: f32,
+    /// Save each question asked through the server, with its answer, to the user's
+    /// memory once it has been answered (a request's `"remember": false` skips it).
+    pub remember: bool,
     cache: Mutex<HashMap<String, Arc<UserMemory>>>,
 }
 
@@ -52,7 +55,7 @@ impl MemoryStack {
                 encoder.model.cfg.n_embd, module.dim
             ));
         }
-        Ok(MemoryStack { encoder, module, store, chunk_tokens: 256, retrieve: 3, min_similarity: 0.3, cache: Mutex::new(HashMap::new()) })
+        Ok(MemoryStack { encoder, module, store, chunk_tokens: 256, retrieve: 3, min_similarity: 0.3, remember: true, cache: Mutex::new(HashMap::new()) })
     }
 
     /// The embedding of a text: its tokens and the end-of-text token through the encoder,
@@ -136,6 +139,36 @@ impl MemoryStack {
     pub fn clear(&self, user: &str) -> Result<(), String> {
         self.cache.lock().unwrap().remove(&crate::store::user_key(user)?);
         self.store.clear(user)
+    }
+
+    /// Removes one entry from a user's memory.
+    pub fn forget(&self, user: &str, index: usize) -> Result<crate::store::Entry, String> {
+        let gone = self.store.remove(user, index)?;
+        self.cache.lock().unwrap().remove(&crate::store::user_key(user)?);
+        Ok(gone)
+    }
+
+    /// Saves a question and its answer to the user's memory, so later questions can
+    /// recall them. Answers that hold nothing to remember (empty, an error, "I don't
+    /// know") are not saved. Returns whether it was saved.
+    pub fn save_exchange(&self, user: &str, question: &str, answer: &str) -> Result<bool, String> {
+        let (q, a) = (question.trim(), answer.trim());
+        let low = a.to_lowercase();
+        let empty = ["i don't know", "i do not know", "i don’t know", "i don't have", "i do not have", "i don’t have"];
+        if q.is_empty() || a.is_empty() || a.starts_with("[error") || empty.iter().any(|e| low.starts_with(e)) {
+            return Ok(false);
+        }
+        // the answer is stored as what the assistant said, not as a fact: a wrong answer
+        // saved here would otherwise come back later as if the user had said it
+        let mut a = a.to_string();
+        if a.chars().count() > 2000 {
+            a = a.chars().take(2000).collect::<String>() + "…";
+        }
+        let text = format!("On {}, the user asked: {q}\nThe assistant answered: {a}", today());
+        let e = self.embed(&text)?;
+        self.store.add_entry(user, &text, &e, "chat")?;
+        self.cache.lock().unwrap().remove(&crate::store::user_key(user)?);
+        Ok(true)
     }
 
     /// The user's memory (None when it is empty). Built from the stored embeddings on
@@ -226,6 +259,22 @@ impl MemoryStack {
     }
 }
 
+/// Today's date (UTC) as YYYY-MM-DD, without a date library.
+fn today() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    // days since 1970-01-01 to a civil date (H. Hinnant's algorithm)
+    let z = (secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 fn user_of(v: &Value) -> String {
     v.get("user").and_then(|u| u.as_str()).filter(|u| !u.trim().is_empty()).unwrap_or("default").to_string()
 }
@@ -258,6 +307,18 @@ impl Extension for MemoryStack {
         Ok(Some(tokens))
     }
 
+    fn answered(&self, request: &Value, question: &str, answer: &str) {
+        if !self.remember || request.get("remember").and_then(|r| r.as_bool()) == Some(false) {
+            return;
+        }
+        let user = user_of(request);
+        match self.save_exchange(&user, question, answer) {
+            Ok(true) => eprintln!("  saved the question and answer to the memory of '{user}' ({} entries)", self.store.count(&user)),
+            Ok(false) => eprintln!("  not saved: the answer holds nothing to remember"),
+            Err(e) => eprintln!("  could not save the question and answer for '{user}': {e}"),
+        }
+    }
+
     fn route(&self, method: &str, path: &str, body: &[u8]) -> Option<(String, Value)> {
         let parse = || serde_json::from_slice::<Value>(body).map_err(|e| format!("the body is not JSON: {e}"));
         match (method, path) {
@@ -278,6 +339,40 @@ impl Extension for MemoryStack {
                 let chunk = v.get("chunk").and_then(|c| c.as_bool()).unwrap_or(true);
                 match self.add(&user, &texts, chunk, |_, _| {}) {
                     Ok(n) => ok(json!({"user": user, "added": n, "documents": self.store.count(&user)})),
+                    Err(e) => bad(e),
+                }
+            }
+            ("POST", "/v1/memory/list") => {
+                let v = match parse() {
+                    Ok(v) => v,
+                    Err(e) => return bad(e),
+                };
+                let user = user_of(&v);
+                let limit = v.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize;
+                match self.store.entries(&user) {
+                    Ok(all) => {
+                        let total = all.len();
+                        let newest: Vec<Value> = all
+                            .into_iter()
+                            .enumerate()
+                            .rev()
+                            .take(limit)
+                            .map(|(i, e)| json!({"index": i, "source": e.source, "time": e.time, "text": e.text}))
+                            .collect();
+                        ok(json!({"user": user, "total": total, "entries": newest}))
+                    }
+                    Err(e) => bad(e),
+                }
+            }
+            ("POST", "/v1/memory/forget") => {
+                let v = match parse() {
+                    Ok(v) => v,
+                    Err(e) => return bad(e),
+                };
+                let user = user_of(&v);
+                let Some(index) = v.get("index").and_then(|i| i.as_u64()) else { return bad("give \"index\": N from /v1/memory/list".into()) };
+                match self.forget(&user, index as usize) {
+                    Ok(gone) => ok(json!({"user": user, "removed": gone.text, "documents": self.store.count(&user)})),
                     Err(e) => bad(e),
                 }
             }

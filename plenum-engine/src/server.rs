@@ -19,6 +19,10 @@ pub trait Extension: Send + Sync {
     fn memory(&self, _request: &Value, _messages: &mut Vec<Message>) -> Result<Option<Vec<Vec<f32>>>, String> {
         Ok(None)
     }
+    /// Called once a chat answer has been sent in full, on a thread of its own so the
+    /// client is not kept waiting: the user's last question as they wrote it (before
+    /// `memory` rewrote it) and the answer as sent. Not called for a cancelled answer.
+    fn answered(&self, _request: &Value, _question: &str, _answer: &str) {}
     /// Routes of its own: Some((status line, JSON body)) when it answers this one.
     fn route(&self, _method: &str, _path: &str, _body: &[u8]) -> Option<(String, Value)> {
         None
@@ -173,6 +177,7 @@ fn completions(ctx: &Ctx, s: &mut TcpStream, req: &Value, chat: bool) -> std::io
             .collect()
     });
     let prompt_text;
+    let mut question = String::new();
     let prompt_ids = if chat {
         let Some(msgs) = req.get("messages").and_then(|m| m.as_array()) else {
             return error(s, "400 Bad Request", "'messages' must be a list");
@@ -190,6 +195,7 @@ fn completions(ctx: &Ctx, s: &mut TcpStream, req: &Value, chat: bool) -> std::io
         if messages.is_empty() {
             return error(s, "400 Bad Request", "'messages' is empty");
         }
+        question = messages.iter().rev().find(|m| m.role == "user").map(|m| m.content.clone()).unwrap_or_default();
         if memory.is_none() {
             if let Some(ext) = &ctx.cfg.extension {
                 match ext.memory(req, &mut messages) {
@@ -233,7 +239,12 @@ fn completions(ctx: &Ctx, s: &mut TcpStream, req: &Value, chat: bool) -> std::io
                 } else {
                     json!({"index": 0, "text": text, "finish_reason": st.finish})
                 };
-                respond_json(s, "200 OK", &json!({"id": id, "object": object, "created": created, "model": model, "choices": [choice], "usage": usage(&st)}))
+                let r = respond_json(s, "200 OK", &json!({"id": id, "object": object, "created": created, "model": model, "choices": [choice], "usage": usage(&st)}));
+                drop(sess);
+                if chat {
+                    notify(ctx, req, &question, &text, st.finish);
+                }
+                r
             }
             Err(e) => error(s, "400 Bad Request", &e),
         };
@@ -257,9 +268,11 @@ fn completions(ctx: &Ctx, s: &mut TcpStream, req: &Value, chat: bool) -> std::io
         Some(m) => eng.generate_with_memory(&mut sess, &prompt_text, m, &p, &stops, on_piece),
         None => eng.generate(&mut sess, &prompt_ids, &p, &stops, on_piece),
     };
+    let mut done = None;
     match res {
-        Ok((_, st)) => {
+        Ok((text, st)) => {
             eprintln!("  {}", st.line());
+            done = Some((text, st.finish));
             let fin = if st.finish == "cancel" { "stop" } else { st.finish };
             let mut last = chunk(json!({}), json!(fin));
             last["usage"] = usage(&st);
@@ -270,7 +283,22 @@ fn completions(ctx: &Ctx, s: &mut TcpStream, req: &Value, chat: bool) -> std::io
         }
     }
     write!(s, "data: [DONE]\n\n")?;
-    s.flush()
+    let r = s.flush();
+    drop(sess);
+    if let (true, Some((text, finish))) = (chat, done) {
+        notify(ctx, req, &question, &text, finish);
+    }
+    r
+}
+
+/// Hands a finished chat answer to the extension, on a thread of its own.
+fn notify(ctx: &Ctx, req: &Value, question: &str, text: &str, finish: &str) {
+    if finish == "cancel" || question.trim().is_empty() {
+        return;
+    }
+    let Some(ext) = ctx.cfg.extension.clone() else { return };
+    let (req, q, a) = (req.clone(), question.to_string(), split_thinking(text).1);
+    std::thread::spawn(move || ext.answered(&req, &q, &a));
 }
 
 fn handle(ctx: &Ctx, stream: TcpStream) {
@@ -315,7 +343,7 @@ fn handle(ctx: &Ctx, stream: TcpStream) {
 pub fn serve(engine: Engine, cfg: ServerConfig) -> Result<(), String> {
     let addr = format!("{}:{}", cfg.host, cfg.port);
     let listener = TcpListener::bind(&addr).map_err(|e| format!("cannot listen on {addr}: {e}"))?;
-    eprintln!("Starting plenum-engine");
+    eprintln!("Starting Plenum AI");
     eprintln!("  Browser:          http://{addr}/");
     eprintln!("  OpenAI base URL:  http://{addr}/v1");
     eprintln!("  model id:         {}", cfg.model_id);

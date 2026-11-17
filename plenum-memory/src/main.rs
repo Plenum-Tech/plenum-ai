@@ -42,6 +42,9 @@ OPTIONS
   --grounded          system prompt that tells the model to say so when it does not know,
                       instead of guessing
   --no-memory         ask: answer without the memory, to compare
+  --remember          ask, chat: save each question and its answer to the user's memory
+  --no-remember       serve: do not (serve saves them by default; a request can also
+                      send \"remember\": false)
   --no-chunk          add: one vector per text or file, however long
   --chunk-tokens N    add: most tokens per passage (default 256)
   -n, --max-tokens N  most tokens to generate (default 256)
@@ -56,6 +59,8 @@ SERVER
                                  \"retrieve\": K overrides --retrieve for the request
   POST /v1/memory/documents      {\"user\": \"U\", \"documents\": [\"...\"]} or {\"user\": \"U\", \"text\": \"...\"}
   POST /v1/memory/tokens         {\"user\": \"U\", \"question\": \"...\"} -> the 16 memory vectors and the passages
+  POST /v1/memory/list           {\"user\": \"U\", \"limit\": N} -> the newest entries, with their index
+  POST /v1/memory/forget         {\"user\": \"U\", \"index\": N} removes one entry
   POST /v1/memory/clear          {\"user\": \"U\"}
   GET  /v1/memory/users
 ";
@@ -73,6 +78,7 @@ struct Args {
     texts: Vec<String>,
     files: Vec<PathBuf>,
     use_memory: bool,
+    remember: Option<bool>,
     chunk: bool,
     chunk_tokens: usize,
     retrieve: usize,
@@ -101,6 +107,7 @@ fn parse() -> Result<Args, String> {
         texts: Vec::new(),
         files: Vec::new(),
         use_memory: true,
+        remember: None,
         chunk: true,
         chunk_tokens: 256,
         retrieve: 3,
@@ -129,6 +136,8 @@ fn parse() -> Result<Args, String> {
             "--text" => a.texts.push(val(&arg)?),
             "--grounded" => a.system = GROUNDED_SYSTEM_PROMPT.into(),
             "--no-memory" => a.use_memory = false,
+            "--remember" => a.remember = Some(true),
+            "--no-remember" => a.remember = Some(false),
             "--no-chunk" => a.chunk = false,
             "--chunk-tokens" => a.chunk_tokens = num(&arg, val(&arg)?)?,
             "--retrieve" => a.retrieve = num(&arg, val(&arg)?)?,
@@ -213,11 +222,14 @@ fn cmd_add(a: &Args) -> Result<(), String> {
 fn ask_one(a: &Args, s: &MemoryStack, dec: &Engine, question: &str) -> Result<(), String> {
     let mut sess = dec.new_session();
     let t0 = Instant::now();
-    let (_, st, used) = s.answer(dec, &mut sess, &a.user, question, &a.system, a.use_memory, &a.sp, |piece| {
+    let (answer, st, used) = s.answer(dec, &mut sess, &a.user, question, &a.system, a.use_memory, &a.sp, |piece| {
         print!("{piece}");
         std::io::stdout().flush().is_ok()
     })?;
     println!();
+    if a.remember == Some(true) && s.save_exchange(&a.user, question, &answer)? {
+        eprintln!("  saved to the memory of '{}'", a.user);
+    }
     let how = if used { format!("{} documents -> {} memory tokens", s.store.count(&a.user), s.module.num_memories) } else { "no memory".to_string() };
     eprintln!("  [{how} · {} · {:.1}s in all]", st.line(), t0.elapsed().as_secs_f64());
     Ok(())
@@ -264,6 +276,9 @@ fn cmd_serve(a: &Args) -> Result<(), String> {
     }
     eprintln!("  memory store: {} · {} users", a.store.display(), s.store.users().len());
     let model_id = "plenum-memory".to_string();
+    let mut s = s;
+    s.remember = a.remember.unwrap_or(true);
+    eprintln!("  questions and answers are {} the users' memory", if s.remember { "saved to" } else { "not saved to" });
     serve(dec, ServerConfig { host: a.host.clone(), port: a.port, defaults: a.sp.clone(), think: false, model_id, extension: Some(Arc::new(s)) })
 }
 

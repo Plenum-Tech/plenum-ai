@@ -61,6 +61,27 @@ The memory tokens make the decoder answer with confidence, including about thing
 memory does not hold. `--grounded` (or the same sentence in your own system prompt)
 tells it to say that it does not know.
 
+### The memory learns from each conversation
+
+`plenum-memory serve` saves every question asked through it, with its answer, to the
+asking user's memory once the answer has been sent, so a later question can recall it:
+
+1. **Add** documents for a user (`add`, the page, or `POST /v1/memory/documents`).
+2. **Ask.** The memory tokens and the closest passages go to the decoder.
+3. **Save.** In the background, the exchange is embedded and stored as one entry:
+   "On 2026-11-17, the user asked: … The assistant answered: …". Answers with nothing
+   to remember (empty, an error, "I don't know") are not saved.
+4. **Recall.** The next question can draw on it like any other entry.
+5. **Review and forget.** `POST /v1/memory/list` shows the newest entries, marked
+   `document` or `chat`; `POST /v1/memory/forget` removes one by its index. The chat
+   page shows the same list under "What this user's memory holds", with a forget button.
+
+A saved answer is stored as what the assistant said, not as a fact, but it can still
+be wrong, and once saved it is recalled like anything else. Review the entries and
+forget the wrong ones. To turn saving off: untick "save Q&A to memory" on the page,
+send `"remember": false` in a request, or start the server with `--no-remember`. From
+the command line, `ask` and `chat` save only with `--remember`.
+
 ### Server, for an agent
 
 `plenum-memory serve` is the OpenAI-compatible server of plenum-engine with the memory
