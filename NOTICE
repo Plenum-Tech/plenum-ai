@@ -1,10 +1,12 @@
 colibri-memorilla-rs
+Copyright 2026 Plenum Tech
 
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-This repository holds Rust implementations written from two open-source projects,
-both under the Apache License, Version 2.0. It contains none of their source files
-and none of their model weights.
+The Rust code in this repository is the work of Plenum Tech. It was written from two
+open-source projects, both under the Apache License, Version 2.0, whose authors keep
+the copyright in their own work, as credited below. This repository contains none of
+their source files and none of their model weights.
 
 colibri-rs is written from the C sources of colibri
 (https://github.com/JustVugg/colibri), Copyright 2026 Vincenzo Fornaro. The ggml

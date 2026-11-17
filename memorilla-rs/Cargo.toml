@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Memorilla in Rust: latent semantic memory for a local LLM, on the colibri-rs engine"
 license = "Apache-2.0"
+authors = ["Plenum Tech"]
+repository = "https://github.com/Plenum-Tech/colibri-memorilla-rs"
 
 [[bin]]
 name = "memorilla-rs"

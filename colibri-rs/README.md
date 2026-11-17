@@ -121,3 +121,8 @@ Outputs have not been compared token for token with the C engine or llama.cpp.
 | `src/generate.rs` | sampler, ChatML, generation loop, prefix reuse, memory vectors | `c/sample.h`, `c/kv_prefix.h` |
 | `src/server.rs`, `src/chat.html` | HTTP server and chat page | `c/openai_server.py` |
 | `src/tiny.rs` | synthetic models and the self-check | `c/*_tiny` |
+
+## License
+
+Copyright 2026 Plenum Tech. Apache-2.0; see [LICENSE](../LICENSE) and [NOTICE](../NOTICE).
+Written from colibri (https://github.com/JustVugg/colibri), Copyright 2026 Vincenzo Fornaro, also Apache-2.0.

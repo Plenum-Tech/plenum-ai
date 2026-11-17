@@ -70,4 +70,7 @@ memory is used. See [`memorilla-rs/README.md`](memorilla-rs/README.md#server-for
 
 ## License
 
-Apache-2.0, as both upstream projects are. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Copyright 2026 Plenum Tech. Licensed under Apache-2.0, as both upstream projects are.
+colibri is by Vincenzo Fornaro and Memorilla by its authors at Stanford University;
+[NOTICE](NOTICE) says which parts of this code were written from which of their
+sources. See [LICENSE](LICENSE).

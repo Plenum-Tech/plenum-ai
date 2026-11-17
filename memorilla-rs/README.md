@@ -168,3 +168,8 @@ checkpoints has them), and batching several questions at once.
 | `src/stack.rs` | encoder -> store -> module -> prompt; the server's memory hook and routes | `memorilla/vllm.py`, `data.py` |
 | `src/main.rs` | the command line | |
 | `tools/reference.py` | PyTorch reference outputs for `verify` | |
+
+## License
+
+Copyright 2026 Plenum Tech. Apache-2.0; see [LICENSE](../LICENSE) and [NOTICE](../NOTICE).
+Written from Memorilla (https://github.com/snap-stanford/memorilla), by its authors at Stanford University, also Apache-2.0.
