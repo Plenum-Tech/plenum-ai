@@ -1,0 +1,9 @@
+target/
+# model files (GGUF, memory.pt), downloaded data and the users' memories stay local
+models/
+data/
+memory-store/
+*.gguf
+*.pt
+*.safetensors
+*.parquet

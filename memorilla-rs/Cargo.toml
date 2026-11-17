@@ -1,0 +1,21 @@
+[package]
+name = "memorilla-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Memorilla in Rust: latent semantic memory for a local LLM, on the colibri-rs engine"
+license = "Apache-2.0"
+
+[[bin]]
+name = "memorilla-rs"
+path = "src/main.rs"
+
+[lib]
+name = "memorilla"
+path = "src/lib.rs"
+
+[dependencies]
+colibri-rs = { path = "../colibri-rs" }
+memmap2 = "0.9"
+rayon = "1.10"
+serde_json = "1"
+

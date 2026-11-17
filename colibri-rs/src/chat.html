@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>colibri-rs</title>
+<style>
+  :root { --bg:#fbfaf7; --fg:#1d1c1a; --mut:#77736b; --line:#e4e0d8; --me:#e9f0ea; --acc:#2f6f4f; --panel:#f3f1ec; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161614; --fg:#ece9e2; --mut:#958f84; --line:#2e2d2a; --me:#223128; --acc:#7cc39b; --panel:#1e1e1b; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; display:flex; flex-direction:column; height:100vh; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header b { color:var(--acc); } header span { color:var(--mut); font-size:13px; }
+  #mem { display:none; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--panel); }
+  #mem .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; max-width:820px; margin:0 auto; }
+  #mem .row + .row { margin-top:8px; }
+  #mem input[type=text], #mem select, #mem textarea { font:inherit; font-size:14px; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:5px 8px; }
+  #mem textarea { flex:1; min-width:220px; height:54px; resize:vertical; }
+  #user { width:150px; }
+  #log { flex:1; overflow-y:auto; padding:16px; max-width:820px; width:100%; margin:0 auto; }
+  .m { margin:0 0 14px; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .u { background:var(--me); padding:8px 12px; border-radius:10px; }
+  .t, .note { color:var(--mut); font-size:12px; margin-top:4px; }
+  .note { margin:0 0 14px; }
+  form { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); max-width:820px; width:100%; margin:0 auto; }
+  #q { flex:1; resize:none; height:52px; padding:8px 10px; font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:10px; }
+  button { padding:6px 14px; font:inherit; border:0; border-radius:10px; background:var(--acc); color:var(--bg); cursor:pointer; }
+  button.small { padding:4px 10px; font-size:13px; }
+  button:disabled { opacity:.5; cursor:default; }
+  label { color:var(--mut); font-size:13px; display:flex; align-items:center; gap:4px; }
+</style>
+</head>
+<body>
+<header><b>colibri-rs</b><span id="info">loading…</span>
+  <label id="thinkl"><input type="checkbox" id="think"> thinking</label>
+  <button type="button" class="small" id="reset">new chat</button></header>
+
+<div id="mem">
+  <div class="row">
+    <label>user <input type="text" id="user" value="default" list="users" autocomplete="off"></label><datalist id="users"></datalist>
+    <span id="count" class="t"></span>
+    <label><input type="checkbox" id="usemem" checked> use memory</label>
+    <label>passages <select id="retrieve"><option>0</option><option>1</option><option>2</option><option selected>3</option><option>5</option></select></label>
+    <label><input type="checkbox" id="grounded" checked> say "I don't know" rather than guess</label>
+  </div>
+  <div class="row">
+    <textarea id="doc" placeholder="Add to this user's memory: paste notes, a conversation, a document. Long text is split into passages."></textarea>
+    <button type="button" id="add">Add to memory</button>
+    <button type="button" class="small" id="clear">Clear user</button>
+  </div>
+</div>
+
+<div id="log"></div>
+<form id="f"><textarea id="q" placeholder="Write a message. Enter sends, Shift+Enter is a new line." autofocus></textarea><button>Send</button></form>
+<script>
+const $ = id => document.getElementById(id);
+const log = $('log'), q = $('q');
+const GROUNDED = "You are a helpful assistant. Answer only from what you know about the user. If you do not know, say that you do not know.";
+let messages = [], busy = false, hasMemory = false, counts = {};
+
+fetch('/v1/models').then(r => r.json()).then(j => {
+  const m = j.data[0];
+  $('info').textContent = m.id + ' · ' + m.meta.architecture + ' · ' + m.meta.n_layer + ' layers' + (m.meta.n_expert ? ' · ' + m.meta.n_expert + ' experts/layer' : '') + ' · ctx ' + m.meta.n_ctx;
+});
+
+function add(cls, text) { const d = document.createElement('div'); d.className = cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
+function showCount() { const n = counts[$('user').value.trim()] || 0; $('count').textContent = n + (n === 1 ? ' document' : ' documents') + ' in memory'; }
+async function loadUsers() {
+  try {
+    const r = await fetch('/v1/memory/users');
+    if (!r.ok) return;
+    const j = await r.json();
+    hasMemory = true; counts = {};
+    $('mem').style.display = 'block'; $('thinkl').style.display = 'none';
+    $('users').textContent = '';
+    for (const u of j.users) { counts[u.user] = u.documents; const o = document.createElement('option'); o.value = u.user; $('users').appendChild(o); }
+    if (!(($('user').value.trim()) in counts) && j.users.length && $('user').value === 'default') $('user').value = j.users[0].user;
+    showCount();
+  } catch (e) {}
+}
+loadUsers();
+$('user').addEventListener('input', showCount);
+$('user').addEventListener('change', () => { messages = []; log.textContent = ''; showCount(); });
+
+$('add').onclick = async () => {
+  const text = $('doc').value.trim(), user = $('user').value.trim() || 'default';
+  if (!text || busy) return;
+  busy = true; $('add').disabled = true;
+  const note = add('note', 'Embedding the text for ' + user + '… (a few seconds per passage)');
+  try {
+    const r = await fetch('/v1/memory/documents', { method: 'POST', body: JSON.stringify({ user, text }) });
+    const j = await r.json();
+    note.textContent = j.error ? 'Could not add: ' + j.error.message : 'Added ' + j.added + ' passage' + (j.added === 1 ? '' : 's') + ' to ' + user + "'s memory (" + j.documents + ' in all).';
+    if (!j.error) $('doc').value = '';
+  } catch (e) { note.textContent = 'Could not add: ' + e; }
+  busy = false; $('add').disabled = false; loadUsers();
+};
+$('clear').onclick = async () => {
+  const user = $('user').value.trim() || 'default';
+  if (busy || !confirm("Remove everything in " + user + "'s memory? This cannot be undone.")) return;
+  await fetch('/v1/memory/clear', { method: 'POST', body: JSON.stringify({ user }) });
+  add('note', "Cleared " + user + "'s memory."); loadUsers();
+};
+
+$('reset').onclick = () => { if (!busy) { messages = []; log.textContent = ''; } };
+q.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('f').requestSubmit(); } });
+$('f').onsubmit = async e => {
+  e.preventDefault();
+  const text = q.value.trim();
+  if (!text || busy) return;
+  busy = true; q.value = '';
+  add('m u', text);
+  messages.push({ role: 'user', content: text });
+  const out = add('m a', hasMemory ? '…' : ''), t0 = performance.now();
+  let reply = '', n = 0;
+  // until the first word arrives, show that the model is working and for how long
+  const tick = setInterval(() => {
+    if (reply) return;
+    const s = Math.round((performance.now() - t0) / 1000);
+    out.textContent = 'working… ' + s + ' s' + (hasMemory ? ' (reading the memory and the prompt; on a busy machine the first word can take a few minutes)' : '');
+  }, 1000);
+  const body = { messages, stream: true };
+  if (hasMemory) {
+    body.user = $('user').value.trim() || 'default';
+    body.memory = $('usemem').checked;
+    body.retrieve = +$('retrieve').value;
+    // each question is asked on its own: the memory is what carries the user's history
+    body.messages = [{ role: 'user', content: text }];
+    if ($('grounded').checked) body.messages.unshift({ role: 'system', content: GROUNDED });
+  } else {
+    body.enable_thinking = $('think').checked;
+  }
+  try {
+    const r = await fetch('/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { const j = await r.json(); throw new Error(j.error ? j.error.message : r.status); }
+    const rd = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, i).replace(/^data: /, ''); buf = buf.slice(i + 2);
+        if (line === '[DONE]') continue;
+        const j = JSON.parse(line);
+        if (j.error) { reply += '[error: ' + j.error.message + ']'; }
+        const d = j.choices && j.choices[0].delta && j.choices[0].delta.content;
+        if (d) { reply += d; n++; }
+        if (reply) { out.textContent = reply; log.scrollTop = log.scrollHeight; }
+      }
+    }
+  } catch (err) { reply += '[error: ' + err.message + ']'; }
+  clearInterval(tick);
+  out.textContent = reply || '(no answer)';
+  const s = (performance.now() - t0) / 1000, t = document.createElement('div');
+  t.className = 't';
+  t.textContent = s.toFixed(1) + ' s' + (hasMemory ? (body.memory ? ' · memory of ' + body.user + (body.retrieve ? ' + ' + body.retrieve + ' passages' : ', tokens only') : ' · no memory') : '');
+  out.appendChild(t);
+  messages.push({ role: 'assistant', content: reply.replace(/<think>[\s\S]*?<\/think>\s*/, '') });
+  busy = false; q.focus();
+};
+</script>
+</body>
+</html>

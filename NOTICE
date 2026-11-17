@@ -1,0 +1,22 @@
+colibri-memorilla-rs
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository holds Rust implementations written from two open-source projects,
+both under the Apache License, Version 2.0. It contains none of their source files
+and none of their model weights.
+
+colibri-rs is written from the C sources of colibri
+(https://github.com/JustVugg/colibri), Copyright 2026 Vincenzo Fornaro. The ggml
+block decoders in colibri-rs/src/quant.rs are ports of c/ggml_quants.h; the
+expert-streaming design follows c/expert_store.h and c/olmoe.c.
+
+memorilla-rs is an inference-only port of Memorilla
+(https://github.com/snap-stanford/memorilla), by the Memorilla authors at Stanford
+University. memorilla-rs/src/memory.rs is a port of memorilla/memory.py, and the
+prompt format and system prompts follow memorilla/data.py and memorilla/benchmarks.py.
+memorilla-rs/tools/reference.py loads memorilla/memory.py from a checkout of that
+project at run time; it does not include it.
+
+The models these programs run (Qwen3, Qwen3-Embedding, the Memorilla memory modules)
+are downloaded separately and keep their own licenses.

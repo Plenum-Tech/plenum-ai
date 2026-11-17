@@ -1,0 +1,4 @@
+# The kernels are plain loops the compiler vectorizes: build for the CPU that runs them
+# (AVX2/FMA/AVX-512 where the machine has them), as c/Makefile does with -march=native.
+[build]
+rustflags = ["-C", "target-cpu=native"]
