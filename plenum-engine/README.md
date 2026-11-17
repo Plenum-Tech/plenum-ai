@@ -1,6 +1,6 @@
-# colibri-rs
+# plenum-engine
 
-colibri's idea in Rust: run a GGUF language model **in place** on the CPU, keep the
+Plenum Tech's local LLM engine, in Rust: run a GGUF language model **in place** on the CPU, keep the
 dense part of the model resident, and read the routed **experts of a MoE model from
 the disk** when the router asks for them.
 
@@ -11,23 +11,23 @@ under [Scope](#scope).
 ## Build
 
 ```bash
-cargo build --release -p colibri-rs
+cargo build --release -p plenum-engine
 ```
 
-Run it from the repository root. The binary is `target/release/coli-rs` (`coli-rs.exe` on Windows). On Windows without
+Run it from the repository root. The binary is `target/release/plenum-engine` (`plenum-engine.exe` on Windows). On Windows without
 Visual Studio's C++ tools, use the GNU toolchain: `rustup default stable-x86_64-pc-windows-gnu`.
 
 ## Use
 
 ```bash
-coli-rs chat  model.gguf                    # talk in the terminal
-coli-rs run   model.gguf -p "your prompt"   # one answer
-coli-rs serve model.gguf --port 8000        # OpenAI-compatible server + chat page
-coli-rs info  model.gguf                    # what is in the file, and whether it runs
-coli-rs selftest                            # check the engine on tiny built-in models
+plenum-engine chat  model.gguf                    # talk in the terminal
+plenum-engine run   model.gguf -p "your prompt"   # one answer
+plenum-engine serve model.gguf --port 8000        # OpenAI-compatible server + chat page
+plenum-engine info  model.gguf                    # what is in the file, and whether it runs
+plenum-engine selftest                            # check the engine on tiny built-in models
 ```
 
-`coli-rs help` lists the options (`--temp`, `--top-k`, `--top-p`, `--max-tokens`,
+`plenum-engine help` lists the options (`--temp`, `--top-k`, `--top-p`, `--max-tokens`,
 `--ctx`, `--threads`, `--think`, `--expert-cache-mb`, `--prof`, ...). A small dense
 model is bound by memory bandwidth, so fewer threads than cores is often faster there
 (`--threads 6`); a MoE model is faster with all of them (the default).
@@ -94,7 +94,7 @@ speculative decoding, the Python tooling (`coli` installer, downloader, MCP serv
 
 ## What has been verified
 
-- `cargo test` and `coli-rs selftest`: block decoders against hand-built blocks; the
+- `cargo test` and `plenum-engine selftest`: block decoders against hand-built blocks; the
   tokenizer; a prompt run at once equals token by token; KV prefix reuse; input
   vectors equal token ids; a MoE whose experts all hold the dense FFN equals the dense
   model; expert streaming with a 1-byte cache equals everything cached; Q8_0 against f32.

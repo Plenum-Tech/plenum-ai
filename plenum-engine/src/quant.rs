@@ -602,7 +602,7 @@ pub fn matmul(w: &[u8], ty: GType, rows: usize, cols: usize, x: &[f32], s: usize
 }
 
 /// Quantize a row to Q8_0 (what ggml's reference quantizer does). Used by the tests
-/// and by `coli-rs selftest` to build a quantized model without any other tool.
+/// and by `plenum-engine selftest` to build a quantized model without any other tool.
 pub fn quantize_q8_0(src: &[f32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(src.len() / 32 * 34);
     for blk in src.chunks_exact(32) {

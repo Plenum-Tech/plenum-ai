@@ -1,4 +1,4 @@
-colibri-memorilla-rs
+plenum-ai
 Copyright 2026 Plenum Tech
 
 Licensed under the Apache License, Version 2.0 (see LICENSE).
@@ -8,16 +8,16 @@ open-source projects, both under the Apache License, Version 2.0, whose authors 
 the copyright in their own work, as credited below. This repository contains none of
 their source files and none of their model weights.
 
-colibri-rs is written from the C sources of colibri
+plenum-engine is written from the C sources of colibri
 (https://github.com/JustVugg/colibri), Copyright 2026 Vincenzo Fornaro. The ggml
-block decoders in colibri-rs/src/quant.rs are ports of c/ggml_quants.h; the
+block decoders in plenum-engine/src/quant.rs are ports of c/ggml_quants.h; the
 expert-streaming design follows c/expert_store.h and c/olmoe.c.
 
-memorilla-rs is an inference-only port of Memorilla
+plenum-memory is an inference-only port of Memorilla
 (https://github.com/snap-stanford/memorilla), by the Memorilla authors at Stanford
-University. memorilla-rs/src/memory.rs is a port of memorilla/memory.py, and the
+University. plenum-memory/src/memory.rs is a port of memorilla/memory.py, and the
 prompt format and system prompts follow memorilla/data.py and memorilla/benchmarks.py.
-memorilla-rs/tools/reference.py loads memorilla/memory.py from a checkout of that
+plenum-memory/tools/reference.py loads memorilla/memory.py from a checkout of that
 project at run time; it does not include it.
 
 The models these programs run (Qwen3, Qwen3-Embedding, the Memorilla memory modules)

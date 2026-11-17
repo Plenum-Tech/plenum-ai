@@ -1,14 +1,16 @@
-# memorilla-rs
+# plenum-memory
 
-[Memorilla](https://github.com/snap-stanford/memorilla) in Rust, for a local PC: latent
-semantic memory for an LLM, on the CPU, with no Python and no GPU at run time.
+Plenum Tech's per-user memory for a local LLM, in Rust: latent semantic memory on the
+CPU, with no Python and no GPU at run time. It implements the
+[Memorilla](https://github.com/snap-stanford/memorilla) method and runs its released
+memory modules.
 
 A user's documents are embedded once and kept. For every question, a small memory
 module compresses the user's whole collection into **16 memory tokens**, conditioned on
 the question, and a frozen decoder reads them as 16 input positions in its system prompt.
 
 This is an inference-only port of the parts of Memorilla's `memorilla/` package that
-answer questions. It runs on the [colibri-rs](../colibri-rs) engine.
+answer questions. It runs on the [plenum-engine](../plenum-engine) engine.
 
 ## The three models
 
@@ -20,27 +22,27 @@ answer questions. It runs on the [colibri-rs](../colibri-rs) engine.
 
 The memory module was trained for exactly this encoder and this decoder; other models
 of other widths are refused. By default the files are looked for in `./models`
-(`--models DIR` or `MEMORILLA_MODELS` changes that). Commands are run from the
+(`--models DIR` or `PLENUM_MODELS` changes that). Commands are run from the
 repository root.
 
 ## Build
 
 ```bash
-cargo build --release -p memorilla-rs
+cargo build --release -p plenum-memory
 ```
 
 ## Use
 
 ```bash
-memorilla-rs add   --user priya memorilla-rs/examples/priya.jsonl      # embed and keep her documents
-memorilla-rs ask   --user priya -q "What is my dog's name?"
-memorilla-rs chat  --user priya
-memorilla-rs search --user priya -q "allergy"             # the closest stored passages
-memorilla-rs users
-memorilla-rs serve --port 8000                            # the server an agent talks to
+plenum-memory add   --user priya plenum-memory/examples/priya.jsonl      # embed and keep her documents
+plenum-memory ask   --user priya -q "What is my dog's name?"
+plenum-memory chat  --user priya
+plenum-memory search --user priya -q "allergy"             # the closest stored passages
+plenum-memory users
+plenum-memory serve --port 8000                            # the server an agent talks to
 ```
 
-`memorilla-rs help` lists every option. Files given to `add` are `.txt`/`.md` (split
+`plenum-memory help` lists every option. Files given to `add` are `.txt`/`.md` (split
 into passages of at most 256 tokens) or `.jsonl` (one `{"text": ...}` per line, each
 kept whole). Collections live in `./memory-store/<user>/` (`--store DIR`).
 
@@ -61,7 +63,7 @@ tells it to say that it does not know.
 
 ### Server, for an agent
 
-`memorilla-rs serve` is the OpenAI-compatible server of colibri-rs with the memory
+`plenum-memory serve` is the OpenAI-compatible server of plenum-engine with the memory
 behind it. Its page at `http://127.0.0.1:8000/` is a chat interface to try it: choose
 a user, paste text into their memory, ask questions, and switch the memory, the
 passages and the "I don't know" prompt on and off to see what each one changes.
@@ -107,12 +109,12 @@ query (the module's cost) but slow to write on a CPU (the encoder's).
 
 ## What has been verified
 
-- **Memory module against PyTorch.** `memorilla-rs/tools/reference.py` runs Memorilla's own
-  `MemoryModule` with a real checkpoint on fixed inputs; `memorilla-rs verify` compares.
+- **Memory module against PyTorch.** `plenum-memory/tools/reference.py` runs Memorilla's own
+  `MemoryModule` with a real checkpoint on fixed inputs; `plenum-memory verify` compares.
   Both released checkpoints tried (stage3 with 37 documents, pmv2 with 500): largest
   difference 4e-5 on values up to 34, cosine 1.000000000. This also checks the
   `memory.pt` reader (`src/torchpt.rs`), which needs no PyTorch.
-- **Encoder against the published embeddings.** `memorilla-rs/tools/published.py` takes a row of
+- **Encoder against the published embeddings.** `plenum-memory/tools/published.py` takes a row of
   `memorilla/Memorilla-Data`; the Rust encoder's vectors for its question and six of
   its documents have cosine 0.9993 to 0.9997 with the published ones (the gap is the
   Q8_0 quantization; the published vectors are unit-norm, as these are).
@@ -134,7 +136,7 @@ module was trained with). One example reproduced is not a benchmark.
 the user based on your understanding of the user."). `stage3` (the default) is the
 multitask module.
 
-On a collection of 12 short chats (`memorilla-rs/examples/priya.jsonl`), memory tokens alone were
+On a collection of 12 short chats (`plenum-memory/examples/priya.jsonl`), memory tokens alone were
 not reliable with either checkpoint. `stage3` kept the gist and lost names. `pmv2` got
 four questions out of four wrong: the dog's name, the daughter's allergy (twice), and
 where the user is moving. With 3 passages as well, the same questions are answered
@@ -144,10 +146,10 @@ and passages" above.
 To repeat the two checks (after downloading the pmv2 test split of `memorilla/Memorilla-Data` into `./data`):
 
 ```bash
-python memorilla-rs/tools/published.py export data pmv2 test 73 memory-store
-memorilla-rs add --user pmv2_73_rust --no-chunk memory-store/pmv2_73.sample.jsonl
-python memorilla-rs/tools/published.py compare data pmv2 test 73 memory-store
-memorilla-rs ask --user pmv2_73 --memory models/memorilla/pmv2 --retrieve 0 \
+python plenum-memory/tools/published.py export data pmv2 test 73 memory-store
+plenum-memory add --user pmv2_73_rust --no-chunk memory-store/pmv2_73.sample.jsonl
+python plenum-memory/tools/published.py compare data pmv2 test 73 memory-store
+plenum-memory ask --user pmv2_73 --memory models/memorilla/pmv2 --retrieve 0 \
   --system "You are a personalized AI assistant. Answer the question about the user based on your understanding of the user." \
   -q "What are some easy breakfast ideas that will keep me full all morning?"
 ```

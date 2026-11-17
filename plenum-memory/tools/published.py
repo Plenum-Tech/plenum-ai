@@ -7,7 +7,7 @@
 
     python tools/published.py compare <data dir> <config> <split> <row> <store dir>
         compares the Rust embeddings of that sample (store user "<config>_<row>_rust",
-        made with `memorilla-rs add --no-chunk`) with the published ones.
+        made with `plenum-memory add --no-chunk`) with the published ones.
 """
 
 import json

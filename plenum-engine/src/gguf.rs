@@ -212,7 +212,7 @@ impl Gguf {
 }
 
 // ---------------------------------------------------------------------------------
-// Writer: enough of GGUF v3 to build a model file (tests, `coli-rs selftest`).
+// Writer: enough of GGUF v3 to build a model file (tests, `plenum-engine selftest`).
 // ---------------------------------------------------------------------------------
 
 pub struct Writer {

@@ -339,7 +339,7 @@ pub fn load_state_dict(path: &Path) -> Result<HashMap<String, Tensor>, String> {
         let raw = &map[so + offset * width..so + (offset + n) * width];
         let data: Vec<f32> = match dtype.as_str() {
             "FloatStorage" => raw.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect(),
-            "HalfStorage" => raw.chunks_exact(2).map(|c| colibri::quant::f16_to_f32(u16::from_le_bytes([c[0], c[1]]))).collect(),
+            "HalfStorage" => raw.chunks_exact(2).map(|c| plenum_engine::quant::f16_to_f32(u16::from_le_bytes([c[0], c[1]]))).collect(),
             "BFloat16Storage" => raw.chunks_exact(2).map(|c| f32::from_bits((u16::from_le_bytes([c[0], c[1]]) as u32) << 16)).collect(),
             _ => raw.chunks_exact(8).map(|c| f64::from_le_bytes(c.try_into().unwrap()) as f32).collect(),
         };

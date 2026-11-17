@@ -5,7 +5,7 @@ neither transformers nor vLLM is needed), runs a real checkpoint on fixed random
 float32, and writes the inputs and the output as raw little-endian float32 files:
 
     python tools/reference.py <memorilla repo> <checkpoint dir> <out dir> [num_docs]
-    memorilla-rs verify --memory <checkpoint dir> --docs <out>/docs.f32 \
+    plenum-memory verify --memory <checkpoint dir> --docs <out>/docs.f32 \
         --question-file <out>/question.f32 --expect <out>/expect.f32
 """
 

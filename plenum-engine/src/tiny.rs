@@ -201,7 +201,7 @@ pub fn selfcheck(dir: &Path) -> Result<Vec<String>, String> {
 mod tests {
     #[test]
     fn engine_selfcheck() {
-        let dir = std::env::temp_dir().join(format!("colibri-rs-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("plenum-engine-test-{}", std::process::id()));
         let r = super::selfcheck(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         for l in r.expect("selfcheck") {

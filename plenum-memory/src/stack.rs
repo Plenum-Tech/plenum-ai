@@ -3,8 +3,8 @@
 
 use crate::memory::{Collection, MemoryModule};
 use crate::store::Store;
-use colibri::generate::{chatml_prompt, Engine, GenStats, Message, SampleParams, Session, MEMORY_PLACEHOLDER};
-use colibri::server::Extension;
+use plenum_engine::generate::{chatml_prompt, Engine, GenStats, Message, SampleParams, Session, MEMORY_PLACEHOLDER};
+use plenum_engine::server::Extension;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -161,7 +161,7 @@ impl MemoryStack {
         let Some(mem) = self.user_memory(user)? else { return Ok(None) };
         let q = self.embed(question.trim())?;
         let d = self.module.dim;
-        let mut scored: Vec<(f32, usize)> = (0..mem.docs.len()).map(|i| (colibri::quant::dot(&q, &mem.embeddings[i * d..(i + 1) * d]), i)).collect();
+        let mut scored: Vec<(f32, usize)> = (0..mem.docs.len()).map(|i| (plenum_engine::quant::dot(&q, &mem.embeddings[i * d..(i + 1) * d]), i)).collect();
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         let passages = scored.into_iter().take(k).filter(|(s, _)| *s >= self.min_similarity).map(|(s, i)| (s, mem.docs[i].clone())).collect();
         Ok(Some(Recall { tokens: self.module.read(&mem.collection, &q)?, passages }))

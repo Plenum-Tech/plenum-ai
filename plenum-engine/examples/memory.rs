@@ -8,10 +8,10 @@
 //!
 //!   cargo run --release --example memory -- ../models/Qwen3-0.6B-Q8_0.gguf
 
-use colibri::generate::{Engine, SampleParams, MEMORY_PLACEHOLDER};
-use colibri::gguf::Gguf;
-use colibri::model::{LoadOptions, Model};
-use colibri::tokenizer::Tokenizer;
+use plenum_engine::generate::{Engine, SampleParams, MEMORY_PLACEHOLDER};
+use plenum_engine::gguf::Gguf;
+use plenum_engine::model::{LoadOptions, Model};
+use plenum_engine::tokenizer::Tokenizer;
 
 fn main() -> Result<(), String> {
     let path = std::env::args().nth(1).ok_or("usage: memory <model.gguf>")?;

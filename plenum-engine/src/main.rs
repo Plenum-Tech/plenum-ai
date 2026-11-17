@@ -1,23 +1,23 @@
-//! coli-rs: the command line of the Rust engine.
+//! plenum-engine: the command line of the engine.
 
-use colibri::generate::{Engine, Message, SampleParams};
-use colibri::gguf::Gguf;
-use colibri::model::{LoadOptions, Model};
-use colibri::server::{serve, ServerConfig};
-use colibri::tokenizer::Tokenizer;
+use plenum_engine::generate::{Engine, Message, SampleParams};
+use plenum_engine::gguf::Gguf;
+use plenum_engine::model::{LoadOptions, Model};
+use plenum_engine::server::{serve, ServerConfig};
+use plenum_engine::tokenizer::Tokenizer;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::time::Instant;
 
 const USAGE: &str = "\
-coli-rs: colibri in Rust. Runs a GGUF language model in place on the CPU.
+plenum-engine: runs a GGUF language model in place on the CPU.
 
 USAGE
-  coli-rs chat  <model.gguf> [options]     talk to the model in the terminal
-  coli-rs run   <model.gguf> -p \"...\"      answer one prompt and exit
-  coli-rs serve <model.gguf> [options]     OpenAI-compatible server + chat page
-  coli-rs info  <model.gguf>               what is in the file
-  coli-rs selftest                         check the engine on tiny built-in models
+  plenum-engine chat  <model.gguf> [options]     talk to the model in the terminal
+  plenum-engine run   <model.gguf> -p \"...\"      answer one prompt and exit
+  plenum-engine serve <model.gguf> [options]     OpenAI-compatible server + chat page
+  plenum-engine info  <model.gguf>               what is in the file
+  plenum-engine selftest                         check the engine on tiny built-in models
 
 OPTIONS
   -p, --prompt TEXT        the prompt (run)
@@ -99,7 +99,7 @@ fn parse() -> Result<Args, String> {
             "--host" => a.host = val(&arg)?,
             "--port" => a.port = num(&arg, val(&arg)?)?,
             "--model" | "-m" => a.model = Some(PathBuf::from(val(&arg)?)),
-            s if s.starts_with('-') => return Err(format!("unknown option {s} (coli-rs help lists them)")),
+            s if s.starts_with('-') => return Err(format!("unknown option {s} (plenum-engine help lists them)")),
             _ if a.model.is_none() => a.model = Some(PathBuf::from(arg)),
             _ => return Err(format!("unexpected argument '{arg}'")),
         }
@@ -127,7 +127,7 @@ fn load(a: &Args) -> Result<Engine, String> {
     } else {
         "dense".to_string()
     };
-    eprintln!("  colibri-rs v{} · {} · {} · {} layers · {}", env!("CARGO_PKG_VERSION"), c.name, c.arch, c.n_layer, kind);
+    eprintln!("  plenum-engine v{} · {} · {} · {} layers · {}", env!("CARGO_PKG_VERSION"), c.name, c.arch, c.n_layer, kind);
     eprintln!("  blocks: {}", model.quant_summary);
     if c.n_expert > 0 {
         let how = if a.expert_cache_mb == 0 { "used from the mapped file".to_string() } else { format!("private cache up to {}", gb(a.expert_cache_mb << 20)) };
@@ -159,9 +159,9 @@ fn cmd_info(a: &Args) -> Result<(), String> {
     keys.sort();
     for k in keys {
         let v = match g.meta.get(k) {
-            Some(colibri::gguf::Value::Int(i)) => Some(i.to_string()),
-            Some(colibri::gguf::Value::Float(f)) => Some(f.to_string()),
-            Some(colibri::gguf::Value::Bool(b)) => Some(b.to_string()),
+            Some(plenum_engine::gguf::Value::Int(i)) => Some(i.to_string()),
+            Some(plenum_engine::gguf::Value::Float(f)) => Some(f.to_string()),
+            Some(plenum_engine::gguf::Value::Bool(b)) => Some(b.to_string()),
             _ => None,
         };
         if let Some(v) = v {
@@ -170,7 +170,7 @@ fn cmd_info(a: &Args) -> Result<(), String> {
     }
     let mut by_type = std::collections::BTreeMap::new();
     for t in &g.tensors {
-        let e = by_type.entry(colibri::quant::type_id_name(t.type_id)).or_insert((0usize, 0usize));
+        let e = by_type.entry(plenum_engine::quant::type_id_name(t.type_id)).or_insert((0usize, 0usize));
         e.0 += 1;
         e.1 += t.n_elements();
     }
@@ -250,7 +250,7 @@ fn cmd_chat(a: &Args) -> Result<(), String> {
             Ok((text, st)) => {
                 println!();
                 eprintln!("  [{}]", st.line());
-                let (_, answer) = colibri::generate::split_thinking(&text);
+                let (_, answer) = plenum_engine::generate::split_thinking(&text);
                 msgs.push(Message { role: "assistant".into(), content: answer });
             }
             Err(e) => {
@@ -270,8 +270,8 @@ fn cmd_serve(a: &Args) -> Result<(), String> {
 }
 
 fn cmd_selftest() -> Result<(), String> {
-    let dir = std::env::temp_dir().join(format!("colibri-rs-selftest-{}", std::process::id()));
-    let r = colibri::tiny::selfcheck(&dir);
+    let dir = std::env::temp_dir().join(format!("plenum-engine-selftest-{}", std::process::id()));
+    let r = plenum_engine::tiny::selfcheck(&dir);
     let _ = std::fs::remove_dir_all(&dir);
     for l in r? {
         println!("{l}");
@@ -284,7 +284,7 @@ fn main() {
     let a = match parse() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("coli-rs: {e}");
+            eprintln!("plenum-engine: {e}");
             std::process::exit(2);
         }
     };
@@ -304,7 +304,7 @@ fn main() {
         other => Err(format!("unknown command '{other}'\n\n{USAGE}")),
     };
     if let Err(e) = r {
-        eprintln!("coli-rs: {e}");
+        eprintln!("plenum-engine: {e}");
         std::process::exit(1);
     }
 }

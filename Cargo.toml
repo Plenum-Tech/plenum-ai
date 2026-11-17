@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["colibri-rs", "memorilla-rs"]
+members = ["plenum-engine", "plenum-memory"]
 
 [profile.release]
 opt-level = 3

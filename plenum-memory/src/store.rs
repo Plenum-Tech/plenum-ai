@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn documents_and_embeddings_stay_row_aligned() {
-        let root = std::env::temp_dir().join(format!("memorilla-rs-store-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("plenum-memory-store-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let st = Store::open(&root, 3).unwrap();
         st.add("u1", "first\nline two", &[1.0, 2.0, 3.0]).unwrap();

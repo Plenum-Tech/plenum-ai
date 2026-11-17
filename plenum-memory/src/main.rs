@@ -1,36 +1,36 @@
-//! memorilla-rs: the command line of Memorilla in Rust.
+//! plenum-memory: the command line of Plenum Memory.
 
-use colibri::generate::{Engine, SampleParams};
-use colibri::gguf::Gguf;
-use colibri::model::{LoadOptions, Model};
-use colibri::server::{serve, ServerConfig};
-use colibri::tokenizer::Tokenizer;
-use memorilla::memory::MemoryModule;
-use memorilla::stack::{MemoryStack, DEFAULT_SYSTEM_PROMPT, GROUNDED_SYSTEM_PROMPT};
-use memorilla::store::Store;
+use plenum_engine::generate::{Engine, SampleParams};
+use plenum_engine::gguf::Gguf;
+use plenum_engine::model::{LoadOptions, Model};
+use plenum_engine::server::{serve, ServerConfig};
+use plenum_engine::tokenizer::Tokenizer;
+use plenum_memory::memory::MemoryModule;
+use plenum_memory::stack::{MemoryStack, DEFAULT_SYSTEM_PROMPT, GROUNDED_SYSTEM_PROMPT};
+use plenum_memory::store::Store;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
 const USAGE: &str = "\
-memorilla-rs: latent semantic memory for a local LLM (Memorilla, in Rust).
+plenum-memory: per-user latent semantic memory for a local LLM (the Memorilla method).
 
 A user's documents are embedded once and kept. For every question the memory module
 turns the whole collection into 16 memory tokens, and the decoder answers with them.
 
 USAGE
-  memorilla-rs add   --user U [--text \"...\"] [FILE ...]   add documents to a user's memory
-  memorilla-rs ask   --user U -q \"...\"                    answer a question from that memory
-  memorilla-rs chat  --user U                             ask question after question
-  memorilla-rs serve [--port N]                           OpenAI-compatible server with memory
-  memorilla-rs search --user U -q \"...\"                   the stored documents closest to a question
-  memorilla-rs users                                      the collections in the store
-  memorilla-rs clear --user U                             remove a user's memory
-  memorilla-rs verify --docs F --question F --expect F    compare the memory module with PyTorch
+  plenum-memory add   --user U [--text \"...\"] [FILE ...]   add documents to a user's memory
+  plenum-memory ask   --user U -q \"...\"                    answer a question from that memory
+  plenum-memory chat  --user U                             ask question after question
+  plenum-memory serve [--port N]                           OpenAI-compatible server with memory
+  plenum-memory search --user U -q \"...\"                   the stored documents closest to a question
+  plenum-memory users                                      the collections in the store
+  plenum-memory clear --user U                             remove a user's memory
+  plenum-memory verify --docs F --question F --expect F    compare the memory module with PyTorch
 
 OPTIONS
-  --models DIR        where the models are (default: $MEMORILLA_MODELS, else ./models)
+  --models DIR        where the models are (default: $PLENUM_MODELS, else ./models)
   --encoder FILE      encoder GGUF   (default: <models>/Qwen3-Embedding-4B-Q8_0.gguf)
   --decoder FILE      decoder GGUF   (default: <models>/Qwen3-8B-Q4_K_M.gguf)
   --memory DIR        memory module checkpoint (default: <models>/memorilla/stage3)
@@ -87,7 +87,7 @@ struct Args {
 
 fn parse() -> Result<Args, String> {
     let mut it = std::env::args().skip(1);
-    let models = std::env::var("MEMORILLA_MODELS").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("models"));
+    let models = std::env::var("PLENUM_MODELS").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("models"));
     let mut a = Args {
         cmd: it.next().unwrap_or_else(|| "help".into()),
         models,
@@ -140,7 +140,7 @@ fn parse() -> Result<Args, String> {
             "--docs" => a.docs = Some(val(&arg)?.into()),
             "--expect" => a.expect = Some(val(&arg)?.into()),
             "--question-file" => a.qfile = Some(val(&arg)?.into()),
-            s if s.starts_with('-') => return Err(format!("unknown option {s} (memorilla-rs help lists them)")),
+            s if s.starts_with('-') => return Err(format!("unknown option {s} (plenum-memory help lists them)")),
             _ => a.files.push(arg.into()),
         }
     }
@@ -263,7 +263,7 @@ fn cmd_serve(a: &Args) -> Result<(), String> {
         return Err(format!("the decoder is {} wide and the memory module writes tokens of {}", dec.model.cfg.n_embd, s.module.out_dim));
     }
     eprintln!("  memory store: {} · {} users", a.store.display(), s.store.users().len());
-    let model_id = "memorilla".to_string();
+    let model_id = "plenum-memory".to_string();
     serve(dec, ServerConfig { host: a.host.clone(), port: a.port, defaults: a.sp.clone(), think: false, model_id, extension: Some(Arc::new(s)) })
 }
 
@@ -327,7 +327,7 @@ fn main() {
     let a = match parse() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("memorilla-rs: {e}");
+            eprintln!("plenum-memory: {e}");
             std::process::exit(2);
         }
     };
@@ -350,7 +350,7 @@ fn main() {
         other => Err(format!("unknown command '{other}'\n\n{USAGE}")),
     };
     if let Err(e) = r {
-        eprintln!("memorilla-rs: {e}");
+        eprintln!("plenum-memory: {e}");
         std::process::exit(1);
     }
 }

@@ -13,7 +13,7 @@
 //! once per collection (`write`) and every question only reads them (`read`).
 
 use crate::torchpt::{load_state_dict, Tensor};
-use colibri::quant::{axpy, dot};
+use plenum_engine::quant::{axpy, dot};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;

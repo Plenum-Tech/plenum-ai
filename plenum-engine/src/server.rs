@@ -295,7 +295,7 @@ fn handle(ctx: &Ctx, stream: TcpStream) {
         ("GET", "/v1/models") | ("GET", "/models") => respond_json(
             &mut s,
             "200 OK",
-            &json!({"object": "list", "data": [{"id": ctx.cfg.model_id, "object": "model", "created": now(), "owned_by": "colibri-rs",
+            &json!({"object": "list", "data": [{"id": ctx.cfg.model_id, "object": "model", "created": now(), "owned_by": "plenum-engine",
                 "meta": {"architecture": c.arch, "n_ctx": ctx.engine.n_ctx, "n_layer": c.n_layer, "n_embd": c.n_embd, "n_expert": c.n_expert}}]}),
         ),
         ("POST", "/v1/chat/completions") | ("POST", "/chat/completions") | ("POST", "/v1/completions") | ("POST", "/completions") => {
@@ -315,7 +315,7 @@ fn handle(ctx: &Ctx, stream: TcpStream) {
 pub fn serve(engine: Engine, cfg: ServerConfig) -> Result<(), String> {
     let addr = format!("{}:{}", cfg.host, cfg.port);
     let listener = TcpListener::bind(&addr).map_err(|e| format!("cannot listen on {addr}: {e}"))?;
-    eprintln!("Starting colibri-rs");
+    eprintln!("Starting plenum-engine");
     eprintln!("  Browser:          http://{addr}/");
     eprintln!("  OpenAI base URL:  http://{addr}/v1");
     eprintln!("  model id:         {}", cfg.model_id);

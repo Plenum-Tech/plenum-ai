@@ -92,7 +92,7 @@ pub struct Model {
     pub prof: Prof,
 }
 
-/// Where the time of the forward pass goes (nanoseconds), printed by `coli-rs run --prof`.
+/// Where the time of the forward pass goes (nanoseconds), printed by `plenum-engine run --prof`.
 #[derive(Default)]
 pub struct Prof {
     pub attn_mm: AtomicU64,

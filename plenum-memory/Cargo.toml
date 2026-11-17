@@ -1,0 +1,23 @@
+[package]
+name = "plenum-memory"
+version = "0.1.0"
+edition = "2021"
+description = "Plenum Memory: per-user latent semantic memory for a local LLM, on plenum-engine"
+license = "Apache-2.0"
+authors = ["Plenum Tech"]
+repository = "https://github.com/Plenum-Tech/plenum-ai"
+
+[[bin]]
+name = "plenum-memory"
+path = "src/main.rs"
+
+[lib]
+name = "plenum_memory"
+path = "src/lib.rs"
+
+[dependencies]
+plenum-engine = { path = "../plenum-engine" }
+memmap2 = "0.9"
+rayon = "1.10"
+serde_json = "1"
+
