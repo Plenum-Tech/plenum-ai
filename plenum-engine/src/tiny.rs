@@ -21,11 +21,14 @@ pub struct TinySpec {
     /// every expert holds the dense model's FFN weights
     pub identical_experts: bool,
     pub q8: bool,
+    /// Qwen3.5 / 3.8 layers: DeltaNet with every second layer gated attention, partial
+    /// rotary, a shared expert when MoE, and one (absent) multi-token-prediction block
+    pub hybrid: bool,
 }
 
 impl Default for TinySpec {
     fn default() -> Self {
-        TinySpec { n_layer: 2, n_embd: 64, n_head: 4, n_kv_head: 2, head_dim: 16, n_ff: 96, n_vocab: 50, n_expert: 0, n_expert_used: 0, identical_experts: false, q8: false }
+        TinySpec { n_layer: 2, n_embd: 64, n_head: 4, n_kv_head: 2, head_dim: 16, n_ff: 96, n_vocab: 50, n_expert: 0, n_expert_used: 0, identical_experts: false, q8: false, hybrid: false }
     }
 }
 
@@ -46,12 +49,30 @@ fn values(name: &str, n: usize, scale: f32, bias: f32) -> Vec<f32> {
 }
 
 pub fn write_tiny(path: &Path, sp: &TinySpec) -> std::io::Result<()> {
-    let arch = if sp.n_expert > 0 { "qwen3moe" } else { "qwen3" };
+    let arch = match (sp.hybrid, sp.n_expert > 0) {
+        (false, false) => "qwen3",
+        (false, true) => "qwen3moe",
+        (true, false) => "qwen35",
+        (true, true) => "qwen35moe",
+    };
+    // the DeltaNet shape of the hybrid models: 2 key heads, 4 value heads (tiled), dims of 8
+    let (dkh, dvh, ddim, dkn) = (2usize, 4usize, 8usize, 4usize);
+    let dconv = 2 * dkh * ddim + dvh * ddim;
     let mut w = Writer::new();
     w.str("general.architecture", arch);
     w.str("general.name", "tiny");
     let k = |s: &str| format!("{arch}.{s}");
-    w.u32(&k("block_count"), sp.n_layer as u32);
+    w.u32(&k("block_count"), (sp.n_layer + sp.hybrid as usize) as u32);
+    if sp.hybrid {
+        w.u32(&k("nextn_predict_layers"), 1);
+        w.u32(&k("rope.dimension_count"), (sp.head_dim / 2) as u32);
+        w.u32(&k("full_attention_interval"), 2);
+        w.u32(&k("ssm.group_count"), dkh as u32);
+        w.u32(&k("ssm.time_step_rank"), dvh as u32);
+        w.u32(&k("ssm.state_size"), ddim as u32);
+        w.u32(&k("ssm.inner_size"), (dvh * ddim) as u32);
+        w.u32(&k("ssm.conv_kernel"), dkn as u32);
+    }
     w.u32(&k("context_length"), 256);
     w.u32(&k("embedding_length"), sp.n_embd as u32);
     w.u32(&k("feed_forward_length"), sp.n_ff as u32);
@@ -77,11 +98,28 @@ pub fn write_tiny(path: &Path, sp: &TinySpec) -> std::io::Result<()> {
     w.tensor_f32("output_norm.weight", &[d], &values("output_norm.weight", d, 0.1, 1.0));
     for i in 0..sp.n_layer {
         let p = |s: &str| format!("blk.{i}.{s}");
-        for (n, len) in [("attn_norm.weight", d), ("ffn_norm.weight", d), ("attn_q_norm.weight", sp.head_dim), ("attn_k_norm.weight", sp.head_dim)] {
+        let fnorm = if sp.hybrid { "post_attention_norm.weight" } else { "ffn_norm.weight" };
+        let attn = !sp.hybrid || i % 2 == 1;
+        for (n, len) in [("attn_norm.weight", d), (fnorm, d)] {
             w.tensor_f32(&p(n), &[len], &values(&p(n), len, 0.1, 1.0));
         }
-        for (n, rows, cols) in [("attn_q.weight", qd, d), ("attn_k.weight", kvd, d), ("attn_v.weight", kvd, d), ("attn_output.weight", d, qd)] {
-            mat(&mut w, &p(n), &[cols, rows], values(&p(n), rows * cols, 0.3, 0.0));
+        if attn {
+            for (n, len) in [("attn_q_norm.weight", sp.head_dim), ("attn_k_norm.weight", sp.head_dim)] {
+                w.tensor_f32(&p(n), &[len], &values(&p(n), len, 0.1, 1.0));
+            }
+            let qrows = if sp.hybrid { 2 * qd } else { qd };
+            for (n, rows, cols) in [("attn_q.weight", qrows, d), ("attn_k.weight", kvd, d), ("attn_v.weight", kvd, d), ("attn_output.weight", d, qd)] {
+                mat(&mut w, &p(n), &[cols, rows], values(&p(n), rows * cols, 0.3, 0.0));
+            }
+        } else {
+            for (n, rows, cols) in [("attn_qkv.weight", dconv, d), ("attn_gate.weight", dvh * ddim, d), ("ssm_beta.weight", dvh, d), ("ssm_alpha.weight", dvh, d), ("ssm_out.weight", d, dvh * ddim)] {
+                mat(&mut w, &p(n), &[cols, rows], values(&p(n), rows * cols, 0.3, 0.0));
+            }
+            w.tensor_f32(&p("ssm_conv1d.weight"), &[dkn, dconv], &values(&p("ssm_conv1d.weight"), dkn * dconv, 0.4, 0.0));
+            w.tensor_f32(&p("ssm_dt.bias"), &[dvh], &values(&p("ssm_dt.bias"), dvh, 0.5, 0.0));
+            // A = -exp(A_log): negative, so the state decays
+            w.tensor_f32(&p("ssm_a"), &[dvh], &values(&p("ssm_a"), dvh, 0.4, -0.6));
+            w.tensor_f32(&p("ssm_norm.weight"), &[ddim], &values(&p("ssm_norm.weight"), ddim, 0.1, 1.0));
         }
         let dense = [("ffn_gate", ff, d), ("ffn_up", ff, d), ("ffn_down", d, ff)];
         if sp.n_expert == 0 {
@@ -99,6 +137,13 @@ pub fn write_tiny(path: &Path, sp: &TinySpec) -> std::io::Result<()> {
                     all.extend(values(&src, rows * cols, 0.3, 0.0));
                 }
                 mat(&mut w, &p(&format!("{n}_exps.weight")), &[cols, rows, sp.n_expert], all);
+            }
+            if sp.hybrid {
+                for (n, rows, cols) in [("ffn_gate_shexp", ff, d), ("ffn_up_shexp", ff, d), ("ffn_down_shexp", d, ff)] {
+                    let name = p(&format!("{n}.weight"));
+                    mat(&mut w, &name, &[cols, rows], values(&name, rows * cols, 0.3, 0.0));
+                }
+                w.tensor_f32(&p("ffn_gate_inp_shexp.weight"), &[d], &values(&p("ffn_gate_inp_shexp.weight"), d, 0.3, 0.0));
             }
         }
     }
@@ -144,7 +189,7 @@ pub fn selfcheck(dir: &Path) -> Result<Vec<String>, String> {
     check("input vectors = token ids", max_diff(&batch, &viaembd), 0.0, &mut log)?;
 
     // 2. the prefix is reused: cut the cache back, run the tail again
-    st.truncate(4);
+    st.truncate(&dense, 4);
     let again = dense.forward(&mut st, &toks[4..], 256)?;
     check("prefix reuse after truncating the KV cache", max_diff(&batch, &again), 2e-3, &mut log)?;
 
@@ -194,6 +239,39 @@ pub fn selfcheck(dir: &Path) -> Result<Vec<String>, String> {
     let outm = mq8.forward(&mut mq8.new_state(), &toks, 256)?;
     let scale = a.iter().fold(0f32, |m, v| m.max(v.abs()));
     check("Q8_0 MoE experts vs f32 (relative)", max_diff(&a, &outm) / scale, 0.08, &mut log)?;
+    // 6. hybrid layers (Qwen3.5 / 3.8): the DeltaNet's conv window and recurrent state carry
+    //    from one call to the next exactly, and a state that cannot rewind starts over
+    for (name, spec) in [
+        ("qwen35 (DeltaNet + gated attention)", TinySpec { hybrid: true, n_layer: 4, ..Default::default() }),
+        ("qwen35moe (with a shared expert)", TinySpec { hybrid: true, n_layer: 4, n_expert: 8, n_expert_used: 2, ..Default::default() }),
+    ] {
+        let f = file(if spec.n_expert > 0 { "hyb_moe.gguf" } else { "hyb.gguf" });
+        write_tiny(&f, &spec).map_err(io)?;
+        let m = Model::load(&f, &big)?;
+        if m.cfg.n_layer != 4 || m.cfg.n_attn_layers != 2 || m.cfg.delta.is_none() {
+            return Err(format!("{name}: loaded {} layers, {} attention", m.cfg.n_layer, m.cfg.n_attn_layers));
+        }
+        let mut st = m.new_state();
+        let at_once = m.forward(&mut st, &toks, 256)?;
+        let mut s1 = m.new_state();
+        let mut inc = Vec::new();
+        for t in &toks {
+            inc = m.forward(&mut s1, &[*t], 256)?;
+        }
+        check(&format!("{name}: prompt at once = token by token"), max_diff(&at_once, &inc), 2e-3, &mut log)?;
+        let mut s2 = m.new_state();
+        m.forward(&mut s2, &toks[..3], 256)?;
+        let tail = m.forward(&mut s2, &toks[3..], 256)?;
+        check(&format!("{name}: in two calls = at once"), max_diff(&at_once, &tail), 2e-3, &mut log)?;
+        if st.truncate(&m, 4) != 0 {
+            return Err(format!("{name}: a DeltaNet state claimed to rewind"));
+        }
+        let again = m.forward(&mut st, &toks, 256)?;
+        check(&format!("{name}: started over after a rewind = fresh"), max_diff(&at_once, &again), 0.0, &mut log)?;
+        if max_diff(&at_once, &batch) < 1e-3 {
+            return Err(format!("{name}: gave the plain model's logits"));
+        }
+    }
     Ok(log)
 }
 

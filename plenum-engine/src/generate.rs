@@ -162,6 +162,10 @@ impl GenStats {
 pub struct Session {
     pub state: State,
     pub tokens: Vec<u32>,
+    /// The logits after the last of `tokens`: a prompt that is exactly `tokens` samples
+    /// from them instead of running its last token again (which a model with DeltaNet
+    /// layers could only do by starting over).
+    pub last_logits: Option<Vec<f32>>,
 }
 
 pub struct Engine {
@@ -184,7 +188,7 @@ impl Engine {
     }
 
     pub fn new_session(&self) -> Session {
-        Session { state: self.model.new_state(), tokens: Vec::new() }
+        Session { state: self.model.new_state(), tokens: Vec::new(), last_logits: None }
     }
 
     /// Generates after `prompt`. `on_text` receives each piece of text and returns
@@ -205,17 +209,27 @@ impl Engine {
         }
         let mut st = GenStats { prompt_tokens: prompt.len(), finish: "length", ..Default::default() };
         // prefix reuse: keep what the session and the new prompt have in common
-        let mut lcp = sess.tokens.iter().zip(prompt).take_while(|(a, b)| a == b).count();
-        if lcp == prompt.len() {
-            lcp -= 1; // the last token must run again: its logits are what we sample from
-        }
-        sess.state.truncate(lcp);
-        sess.tokens.truncate(lcp);
-        st.reused_tokens = lcp;
-
         let t0 = Instant::now();
-        let logits = self.model.forward(&mut sess.state, &prompt[lcp..], self.n_ctx)?;
-        sess.tokens.extend_from_slice(&prompt[lcp..]);
+        let same = sess.tokens.as_slice() == prompt && sess.state.n_past == prompt.len();
+        let logits = match (same, sess.last_logits.take()) {
+            (true, Some(l)) => {
+                st.reused_tokens = prompt.len();
+                l
+            }
+            _ => {
+                let mut lcp = sess.tokens.iter().zip(prompt).take_while(|(a, b)| a == b).count();
+                if lcp == prompt.len() {
+                    lcp -= 1; // the last token must run again: its logits are what we sample from
+                }
+                // a model that cannot rewind keeps the prefix only when nothing after it goes
+                let kept = sess.state.truncate(&self.model, lcp);
+                sess.tokens.truncate(kept);
+                st.reused_tokens = kept;
+                let l = self.model.forward(&mut sess.state, &prompt[kept..], self.n_ctx)?;
+                sess.tokens.extend_from_slice(&prompt[kept..]);
+                l
+            }
+        };
         st.prompt_secs = t0.elapsed().as_secs_f64();
 
         self.decode(sess, logits, st, p, stops, on_text)
@@ -258,15 +272,17 @@ impl Engine {
             return Err(format!("the prompt is {n} positions and the context is {}", self.n_ctx));
         }
         // the cache of a prompt with vectors in it cannot be matched against token ids: start clean, leave clean
-        sess.state.truncate(0);
+        sess.state.truncate(&self.model, 0);
         sess.tokens.clear();
+        sess.last_logits = None;
         let mut st = GenStats { prompt_tokens: n, finish: "length", ..Default::default() };
         let t0 = Instant::now();
         let logits = self.model.forward_embd(&mut sess.state, x, self.n_ctx)?;
         st.prompt_secs = t0.elapsed().as_secs_f64();
         let r = self.decode(sess, logits, st, p, stops, on_text);
-        sess.state.truncate(0);
+        sess.state.truncate(&self.model, 0);
         sess.tokens.clear();
+        sess.last_logits = None;
         r
     }
 
@@ -287,7 +303,8 @@ impl Engine {
         let hold = stops.iter().map(|s| s.len()).max().unwrap_or(0);
         let t1 = Instant::now();
         'gen: while st.completion_tokens < p.max_tokens {
-            let id = sample(&mut logits, &sess.tokens, p, &mut rng);
+            // sample from a copy: the repetition penalty changes it, and `logits` is kept for the session
+            let id = sample(&mut logits.clone(), &sess.tokens, p, &mut rng);
             if self.stop_ids.contains(&id) {
                 st.finish = "stop";
                 break;
@@ -331,6 +348,8 @@ impl Engine {
             }
         }
         st.gen_secs = t1.elapsed().as_secs_f64();
+        // the state holds every token in `tokens`, and these are the logits after the last
+        sess.last_logits = Some(logits);
         Ok((text, st))
     }
 

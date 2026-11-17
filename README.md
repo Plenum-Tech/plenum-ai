@@ -14,17 +14,22 @@ Each crate's README says what it covers, what it does not, and what has been ver
 
 This is a working slice, not a full port of either project.
 
-- `plenum-engine` runs the Qwen3 dense, Qwen3 MoE and Qwen2 architectures. The other
-  twelve colibri engines, the GPU backends and the Python tooling are not ported.
+- `plenum-engine` runs the Qwen3 dense, Qwen3 MoE and Qwen2 architectures, and the
+  hybrid Qwen3.5 / 3.8 family (Gated DeltaNet + gated attention: Qwen3.8-27B dense,
+  Qwen3.6 MoE). Colibri's other engines (GLM, DeepSeek, Kimi, Inkling, MiMo, OLMoE,
+  Qwen3.8-Flash-Next, the image and decision models), its GPU backends and its Python
+  tooling are not ported.
 - `plenum-memory` answers questions with the released memory modules. Training,
   evaluation and the benchmarks are not ported.
 - Verified: a 30B MoE model (Qwen3-30B-A3B Q4_K_M) runs on a 16 GB laptop with under
-  1 GB resident; the memory module matches Memorilla's PyTorch code to 4e-5; the
+  1 GB resident; Qwen3.8-27B answers correctly, and its hybrid layers match Hugging
+  Face's implementation to 4e-6 on a tiny model; the memory module matches Memorilla's PyTorch code to 4e-5; the
   encoder's embeddings match the published ones (cosine 0.9993 to 0.9997 with the
   Q8_0 encoder); the example of Memorilla's README is reproduced.
 - Not verified: no benchmark of either paper has been run, and outputs have not been
   compared token for token with the C engine or llama.cpp.
-- It is slow on a laptop CPU: about 2 tokens/s for the 30B MoE model, and from under
+- It is slow on a laptop CPU: about 2 tokens/s for the 30B MoE model, about 0.1 for
+  the 27B dense one (its 15 GB do not fit in 16 GB of RAM), and from under
   one to several minutes per question with memory, depending on prompt length and free RAM.
 
 ## Build

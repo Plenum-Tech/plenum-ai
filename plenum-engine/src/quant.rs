@@ -397,6 +397,47 @@ pub fn dot_q8_0(w: &[u8], x: &[f32]) -> f32 {
     tot.iter().sum()
 }
 
+/// One Q4_0 row times x without decoding it: d * sum((q - 8) * x) per block of 32.
+#[inline]
+pub fn dot_q4_0(w: &[u8], x: &[f32]) -> f32 {
+    let mut tot = 0f32;
+    for (blk, xs) in w.chunks_exact(18).zip(x.chunks_exact(32)) {
+        let d = h(blk, 0);
+        let qs = &blk[2..18];
+        let (mut a, mut b) = ([0f32; 8], [0f32; 8]);
+        for c in 0..2 {
+            for i in 0..8 {
+                let j = c * 8 + i;
+                a[i] += ((qs[j] & 0x0f) as i32 - 8) as f32 * xs[j];
+                b[i] += ((qs[j] >> 4) as i32 - 8) as f32 * xs[j + 16];
+            }
+        }
+        tot += d * (sum8(a) + sum8(b));
+    }
+    tot
+}
+
+/// One Q4_1 row times x without decoding it: d * sum(q * x) + m * sum(x) per block of 32.
+#[inline]
+pub fn dot_q4_1(w: &[u8], x: &[f32]) -> f32 {
+    let mut tot = 0f32;
+    for (blk, xs) in w.chunks_exact(20).zip(x.chunks_exact(32)) {
+        let (d, m) = (h(blk, 0), h(blk, 2));
+        let qs = &blk[4..20];
+        let (mut a, mut b, mut sx) = ([0f32; 8], [0f32; 8], [0f32; 8]);
+        for c in 0..2 {
+            for i in 0..8 {
+                let j = c * 8 + i;
+                a[i] += (qs[j] & 0x0f) as f32 * xs[j];
+                b[i] += (qs[j] >> 4) as f32 * xs[j + 16];
+                sx[i] += xs[j] + xs[j + 16];
+            }
+        }
+        tot += d * (sum8(a) + sum8(b)) + m * sum8(sx);
+    }
+    tot
+}
+
 /// The sum of every 16 values of x: what the constant part of a K-quant block
 /// (its minimum, or Q6_K's -32 offset) multiplies. Computed once per product.
 pub fn sums16(x: &[f32]) -> Vec<f32> {
@@ -507,9 +548,14 @@ pub fn matmul1_serial(w: &[u8], ty: GType, rows: usize, cols: usize, x: &[f32], 
     let rb = ty.bytes_for(cols);
     let x = &x[..cols];
     match ty {
-        GType::Q8_0 => {
+        GType::Q8_0 | GType::Q4_0 | GType::Q4_1 => {
+            let f = match ty {
+                GType::Q8_0 => dot_q8_0,
+                GType::Q4_0 => dot_q4_0,
+                _ => dot_q4_1,
+            };
             for (r, yo) in y[..rows].iter_mut().enumerate() {
-                *yo = dot_q8_0(&w[r * rb..(r + 1) * rb], x);
+                *yo = f(&w[r * rb..(r + 1) * rb], x);
             }
         }
         GType::Q4K | GType::Q6K => {
@@ -534,14 +580,16 @@ pub fn matmul(w: &[u8], ty: GType, rows: usize, cols: usize, x: &[f32], s: usize
     debug_assert!(w.len() >= rb * rows, "matrix bytes short");
     debug_assert!(x.len() >= s * cols && y.len() >= s * rows);
     let grain = (32768 / (cols * s).max(1)).max(1);
-    if s == 1 && matches!(ty, GType::Q8_0 | GType::Q4K | GType::Q6K) {
+    if s == 1 && matches!(ty, GType::Q8_0 | GType::Q4_0 | GType::Q4_1 | GType::Q4K | GType::Q6K) {
         // one input vector: the row's codes are multiplied where they are, never decoded
         let x = &x[..cols];
-        let xs = if ty == GType::Q8_0 { Vec::new() } else { sums16(x) };
+        let xs = if matches!(ty, GType::Q4K | GType::Q6K) { sums16(x) } else { Vec::new() };
         y[..rows].par_iter_mut().with_min_len(grain).enumerate().for_each(|(r, yo)| {
             let row = &w[r * rb..(r + 1) * rb];
             *yo = match ty {
                 GType::Q8_0 => dot_q8_0(row, x),
+                GType::Q4_0 => dot_q4_0(row, x),
+                GType::Q4_1 => dot_q4_1(row, x),
                 GType::Q4K => dot_q4_k(row, x, &xs),
                 _ => dot_q6_k(row, x, &xs),
             };
@@ -731,7 +779,7 @@ mod tests {
         let cols = 512;
         let x: Vec<f32> = (0..cols).map(|_| (next() >> 40) as f32 / (1u64 << 23) as f32 - 1.0).collect();
         let xs = sums16(&x);
-        for (ty, bb, dpos) in [(GType::Q4K, 144usize, vec![0usize, 2]), (GType::Q6K, 210, vec![208]), (GType::Q8_0, 34, vec![0])] {
+        for (ty, bb, dpos) in [(GType::Q4K, 144usize, vec![0usize, 2]), (GType::Q6K, 210, vec![208]), (GType::Q8_0, 34, vec![0]), (GType::Q4_0, 18, vec![0]), (GType::Q4_1, 20, vec![0, 2])] {
             let n = ty.bytes_for(cols);
             let mut w: Vec<u8> = (0..n).map(|_| (next() >> 32) as u8).collect();
             for blk in w.chunks_exact_mut(bb) {
@@ -746,6 +794,8 @@ mod tests {
             let got = match ty {
                 GType::Q4K => dot_q4_k(&w, &x, &xs),
                 GType::Q6K => dot_q6_k(&w, &x, &xs),
+                GType::Q4_0 => dot_q4_0(&w, &x),
+                GType::Q4_1 => dot_q4_1(&w, &x),
                 _ => dot_q8_0(&w, &x),
             };
             let scale = dec.iter().zip(&x).map(|(a, b)| (a * b).abs()).sum::<f32>();

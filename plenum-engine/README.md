@@ -82,13 +82,18 @@ module) is a separate model that this crate does not run.
 
 Runs:
 
-- GGUF architectures `qwen3` (dense), `qwen3moe` (MoE, experts streamed from disk) and `qwen2`.
+- GGUF architectures `qwen3` (dense), `qwen3moe` (MoE, experts streamed from disk), `qwen2`,
+  `qwen35` (Qwen3.5 / Qwen3.8 dense, such as Qwen3.8-27B) and `qwen35moe` (Qwen3.5 /
+  Qwen3.6 MoE). The last two are hybrid: three of every four layers are Gated DeltaNet
+  (linear attention with a recurrent state), the fourth gated attention with partial
+  rotary; the MoE one adds a gated shared expert. Ported from `c/qwen36.c`.
 - Tensor types F32, F16, BF16, Q8_0, Q4_0, Q4_1, Q5_0, Q5_1, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K,
   decoded per block exactly as `c/ggml_quants.h` does.
 - The byte-level BPE tokenizer in the GGUF (`tokenizer.ggml.model = gpt2`), ChatML prompts.
 
-Does not (yet): the other colibri engines (GLM, DeepSeek V4, Kimi, Inkling, MiMo,
-OLMoE, Qwen3.8, image and decision models), GPU backends (CUDA, Vulkan, Metal), IQ
+Does not (yet): the other colibri engines (GLM, DeepSeek V4/V4.1, Kimi K3, Inkling,
+MiMo, OLMoE, Qwen3.8-Flash-Next, Qwen-Image, Laya, GLiNER-Decide), the vision
+input and the multi-token-prediction head of the Qwen3.5 / 3.8 models, GPU backends (CUDA, Vulkan, Metal), IQ
 and MXFP4 blocks, split GGUF files, the model's own Jinja chat template, tool calls,
 speculative decoding, the Python tooling (`coli` installer, downloader, MCP server).
 
@@ -100,13 +105,21 @@ speculative decoding, the Python tooling (`coli` installer, downloader, MCP serv
   model; expert streaming with a 1-byte cache equals everything cached; Q8_0 against f32.
 - The fused kernels (Q8_0, Q4_K, Q6_K codes multiplied in place) equal decode-then-dot
   on blocks of arbitrary bytes.
+- The hybrid layers against Hugging Face: `tools/qwen35_reference.py` builds a tiny
+  Qwen3.5 model with random weights in transformers, writes it as llama.cpp lays out a
+  `qwen35` GGUF, and `examples/logits.rs` runs it here. The last token's logits agree
+  to 4e-6, whether the prompt runs at once or token by token.
 - End to end on real models:
   - Qwen3-0.6B Q8_0, dense (`chat`, `run`, `serve`, memory vectors).
   - Qwen3-30B-A3B Q4_K_M, MoE with 128 experts per layer and 8 routed, Q4_K and Q6_K
     blocks: correct answers in both streaming modes, with the same text from each.
+  - Qwen3.8-27B Q4_0 (unsloth's GGUF), `qwen35`: 64 layers, 48 DeltaNet and 16
+    attention, Q4_0, Q4_1, Q5_K and Q6_K blocks; correct answers. On a 16 GB laptop the
+    14.7 GB of weights do not stay in RAM and are read from the disk for every token:
+    about 0.1 token/s.
 
-Not verified against real weights: `qwen2`, and the Q4_0/Q4_1/Q5_0/Q5_1/Q2_K/Q3_K/Q5_K
-decoders (ported from `c/ggml_quants.h`, not yet run on a file that uses them).
+Not verified against real weights: `qwen2`, `qwen35moe` (checked only on tiny
+synthetic models), and the Q5_0/Q5_1/Q2_K/Q3_K decoders (ported from `c/ggml_quants.h`, not yet run on a file that uses them).
 Outputs have not been compared token for token with the C engine or llama.cpp.
 
 ## Layout
@@ -116,7 +129,7 @@ Outputs have not been compared token for token with the C engine or llama.cpp.
 | `src/gguf.rs` | GGUF reader (mmap) and a small writer | `c/gguf.h` |
 | `src/quant.rs` | block decoders, dot, matmul | `c/ggml_quants.h`, `c/matmul_f32.h` |
 | `src/expert.rs` | expert store: mapped ranges, or positioned reads into a byte-bounded LRU | `c/expert_store.h` |
-| `src/model.rs` | the transformer: attention, dense FFN, MoE routing | `c/qwen36.c`, `c/olmoe.c` |
+| `src/model.rs` | the transformer: attention, Gated DeltaNet, dense FFN, MoE routing, shared expert | `c/qwen36.c`, `c/olmoe.c` |
 | `src/tokenizer.rs` | BPE tokenizer, streaming UTF-8 decoder | `c/tok.h` |
 | `src/generate.rs` | sampler, ChatML, generation loop, prefix reuse, memory vectors | `c/sample.h`, `c/kv_prefix.h` |
 | `src/server.rs`, `src/chat.html` | HTTP server and chat page | `c/openai_server.py` |

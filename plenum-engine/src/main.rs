@@ -37,7 +37,8 @@ OPTIONS
                            mapped file and the OS keeps the used ones in RAM
   --host H  --port N       serve: where to listen (default 127.0.0.1:8000)
 
-Supported GGUF architectures: qwen3, qwen3moe, qwen2.
+Supported GGUF architectures: qwen3, qwen3moe, qwen2, qwen35 (Qwen3.5 / Qwen3.8 dense),
+qwen35moe (Qwen3.5 / Qwen3.6 MoE).
 Supported tensor types: F32, F16, BF16, Q8_0, Q4_0, Q4_1, Q5_0, Q5_1, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K.
 ";
 
@@ -122,11 +123,14 @@ fn load(a: &Args) -> Result<Engine, String> {
     let model = Model::from_gguf(&g, &LoadOptions { expert_cache_bytes: a.expert_cache_mb << 20 })?;
     let tok = Tokenizer::from_gguf(&g)?;
     let c = &model.cfg;
-    let kind = if c.n_expert > 0 {
+    let mut kind = if c.n_expert > 0 {
         format!("MoE {} experts/layer, {} routed · streaming from disk", c.n_expert, c.n_expert_used)
     } else {
         "dense".to_string()
     };
+    if c.delta.is_some() {
+        kind.push_str(&format!(" · hybrid: {} attention + {} DeltaNet layers", c.n_attn_layers, c.n_layer - c.n_attn_layers));
+    }
     eprintln!("  plenum-engine v{} · {} · {} · {} layers · {}", env!("CARGO_PKG_VERSION"), c.name, c.arch, c.n_layer, kind);
     eprintln!("  blocks: {}", model.quant_summary);
     if c.n_expert > 0 {
