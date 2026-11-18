@@ -109,6 +109,7 @@ dependencies = [
 name = "plenum-memory"
 version = "0.1.0"
 dependencies = [
+ "fancy-regex",
  "memmap2",
  "plenum-engine",
  "rayon",

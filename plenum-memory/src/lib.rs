@@ -6,7 +6,10 @@
 //! prompt. Inference-only port of <https://github.com/snap-stanford/memorilla>, on the
 //! plenum-engine engine (CPU, GGUF models).
 
+pub mod eval;
 pub mod memory;
+pub mod metrics;
+pub mod safetensors;
 pub mod stack;
 pub mod store;
 pub mod torchpt;

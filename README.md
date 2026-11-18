@@ -19,8 +19,9 @@ This is a working slice, not a full port of either project.
   Qwen3.6 MoE). Colibri's other engines (GLM, DeepSeek, Kimi, Inkling, MiMo, OLMoE,
   Qwen3.8-Flash-Next, the image and decision models), its GPU backends and its Python
   tooling are not ported.
-- `plenum-memory` answers questions with the released memory modules. Training,
-  evaluation and the benchmarks are not ported.
+- `plenum-memory` answers questions with the released memory modules, and scores them
+  on Memorilla's benchmarks or on your own questions (`evaluate`). Training and the
+  baselines are not ported.
 - Verified: a 30B MoE model (Qwen3-30B-A3B Q4_K_M) runs on a 16 GB laptop with under
   1 GB resident; Qwen3.8-27B answers correctly, and its hybrid layers match Hugging
   Face's implementation to 4e-6 on a tiny model; the memory module matches Memorilla's PyTorch code to 4e-5; the

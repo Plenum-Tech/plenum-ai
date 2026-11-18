@@ -28,6 +28,21 @@ USAGE
   plenum-memory users                                      the collections in the store
   plenum-memory clear --user U                             remove a user's memory
   plenum-memory verify --docs F --question F --expect F    compare the memory module with PyTorch
+  plenum-memory evaluate --benchmark B --data DIR --embeddings DIR   score it as Memorilla's paper does
+  plenum-memory evaluate --data qa.jsonl --scoring S       score it on your own questions
+
+EVALUATE
+  --benchmark B       pmv2, pv4, factkg, triviaqa, narrativeqa, pubmedqa, lamp4 or lamp7: their
+                      prompts, budgets and scoring. --data is the folder that
+                      tools/import_benchmark.py wrote, --embeddings Memorilla's embeddings of
+                      the split (embeddings/qwen3-embedding-4b/<benchmark>/<split>)
+  --data qa.jsonl     your own rows: {\"question\", \"answer\", \"user\"} (and \"choices\"), answered
+                      from that user's memory; with --scoring choice|exact_match|polarity|generation
+  --limit N --offset K   a slice of the rows (it is about a minute per row on a laptop CPU)
+  --out DIR           results/<name>/predictions.jsonl and metrics.json (default results)
+  --fresh             start over instead of continuing the predictions already written
+  --no-memory         the baseline: the same questions to the decoder alone (results/<name>-no-memory)
+  Passages default to 0 here (the memory tokens alone, as Memorilla); --retrieve K adds them.
 
 OPTIONS
   --models DIR        where the models are (default: $PLENUM_MODELS, else ./models)
@@ -87,6 +102,17 @@ struct Args {
     host: String,
     port: u16,
     docs: Option<PathBuf>,
+    benchmark: Option<String>,
+    data: Option<PathBuf>,
+    embeddings: Option<PathBuf>,
+    scoring: Option<String>,
+    offset: usize,
+    limit: Option<usize>,
+    out: PathBuf,
+    fresh: bool,
+    system_set: bool,
+    retrieve_set: bool,
+    max_tokens_set: bool,
     qfile: Option<PathBuf>,
     expect: Option<PathBuf>,
 }
@@ -116,6 +142,17 @@ fn parse() -> Result<Args, String> {
         host: "127.0.0.1".into(),
         port: 8000,
         docs: None,
+        benchmark: None,
+        data: None,
+        embeddings: None,
+        scoring: None,
+        offset: 0,
+        limit: None,
+        out: PathBuf::from("results"),
+        fresh: false,
+        system_set: false,
+        retrieve_set: false,
+        max_tokens_set: false,
         qfile: None,
         expect: None,
     };
@@ -131,7 +168,18 @@ fn parse() -> Result<Args, String> {
             "--memory" => a.memory = Some(val(&arg)?.into()),
             "--store" => a.store = val(&arg)?.into(),
             "--user" | "-u" => a.user = val(&arg)?,
-            "--system" => a.system = val(&arg)?,
+            "--system" => {
+                a.system = val(&arg)?;
+                a.system_set = true;
+            }
+            "--benchmark" => a.benchmark = Some(val(&arg)?),
+            "--data" => a.data = Some(val(&arg)?.into()),
+            "--embeddings" => a.embeddings = Some(val(&arg)?.into()),
+            "--scoring" => a.scoring = Some(val(&arg)?),
+            "--offset" => a.offset = num(&arg, val(&arg)?)?,
+            "--limit" => a.limit = Some(num(&arg, val(&arg)?)?),
+            "--out" => a.out = val(&arg)?.into(),
+            "--fresh" => a.fresh = true,
             "-q" | "--question" => a.question = Some(val(&arg)?),
             "--text" => a.texts.push(val(&arg)?),
             "--grounded" => a.system = GROUNDED_SYSTEM_PROMPT.into(),
@@ -140,8 +188,14 @@ fn parse() -> Result<Args, String> {
             "--no-remember" => a.remember = Some(false),
             "--no-chunk" => a.chunk = false,
             "--chunk-tokens" => a.chunk_tokens = num(&arg, val(&arg)?)?,
-            "--retrieve" => a.retrieve = num(&arg, val(&arg)?)?,
-            "-n" | "--max-tokens" => a.sp.max_tokens = num(&arg, val(&arg)?)?,
+            "--retrieve" => {
+                a.retrieve = num(&arg, val(&arg)?)?;
+                a.retrieve_set = true;
+            }
+            "-n" | "--max-tokens" => {
+                a.sp.max_tokens = num(&arg, val(&arg)?)?;
+                a.max_tokens_set = true;
+            }
             "--temp" => a.sp.temperature = num(&arg, val(&arg)?)?,
             "--threads" | "-t" => a.threads = num(&arg, val(&arg)?)?,
             "--host" => a.host = val(&arg)?,
@@ -316,6 +370,29 @@ fn read_f32(path: &Path) -> Result<Vec<f32>, String> {
 }
 
 /// The memory module on given inputs against what PyTorch computed from them.
+fn cmd_evaluate(a: &Args) -> Result<(), String> {
+    let data = a.data.clone().ok_or("evaluate needs --data (a benchmark folder from tools/import_benchmark.py, or a .jsonl of your own)")?;
+    let opts = plenum_memory::eval::EvalOptions {
+        benchmark: a.benchmark.clone(),
+        data,
+        embeddings: a.embeddings.clone(),
+        scoring: a.scoring.as_deref().map(plenum_memory::eval::Scoring::parse).transpose()?,
+        system: a.system_set.then(|| a.system.clone()),
+        max_new_tokens: a.max_tokens_set.then_some(a.sp.max_tokens),
+        offset: a.offset,
+        limit: a.limit,
+        retrieve: if a.retrieve_set { a.retrieve } else { 0 },
+        out: a.out.clone(),
+        fresh: a.fresh,
+        no_memory: !a.use_memory,
+    };
+    let s = stack(a)?;
+    let dec = decoder(a)?;
+    let m = plenum_memory::eval::run(&s, &dec, &opts)?;
+    println!("{}", serde_json::to_string_pretty(&m).unwrap());
+    Ok(())
+}
+
 fn cmd_verify(a: &Args) -> Result<(), String> {
     let need = |p: &Option<PathBuf>, n: &str| p.clone().ok_or(format!("verify needs {n}"));
     let (docs, q, want) = (read_f32(&need(&a.docs, "--docs")?)?, read_f32(&need(&a.qfile, "--question-file")?)?, read_f32(&need(&a.expect, "--expect")?)?);
@@ -358,6 +435,7 @@ fn main() {
         "search" => cmd_search(&a),
         "clear" => Store::open(&a.store, 1).and_then(|s| s.clear(&a.user)).map(|_| println!("cleared '{}'", a.user)),
         "verify" => cmd_verify(&a),
+        "evaluate" => cmd_evaluate(&a),
         "help" | "-h" | "--help" => {
             print!("{USAGE}");
             Ok(())

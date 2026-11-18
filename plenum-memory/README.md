@@ -175,10 +175,67 @@ plenum-memory ask --user pmv2_73 --memory models/memorilla/pmv2 --retrieve 0 \
   -q "What are some easy breakfast ideas that will keep me full all morning?"
 ```
 
+## Evaluation
+
+`plenum-memory evaluate` is a port of Memorilla's `evaluate.py` and `metrics.py`: for each
+row of a test set the memory module compresses that row's collection, the decoder
+answers greedily with the memory tokens alone (as Memorilla does; `--retrieve K` adds
+passages), and the answers are scored as the paper scores them.
+
+| Benchmark | Scoring |
+|---|---|
+| `pmv2`, `pv4`, `factkg` | answer-choice accuracy: the answer and every choice are embedded with the encoder, and the nearest choice must be the reference (`pv4` also reports the hard subset) |
+| `triviaqa` | exact match (SQuAD normalisation), plus BLEU, ROUGE and F1 |
+| `pubmedqa` | the first word, yes / no / maybe, must match |
+| `narrativeqa`, `lamp4`, `lamp7` | corpus BLEU-1/4 (NLTK, method-1 smoothing), ROUGE-1/L F-measure (rouge_score with the Porter stemmer), token F1 |
+
+The prompts, system prompts and generation budgets are those of `memorilla/benchmarks.py`.
+The rows come from Memorilla's published parquet, turned into plain files once by
+`tools/import_benchmark.py` (pyarrow; Rust cannot read the zstd parquet here without a C
+compiler), and the document and question embeddings are read from Memorilla's published
+safetensors, so a run uses the same inputs as the original:
+
+```bash
+python plenum-memory/tools/import_benchmark.py data pmv2 test data/plenum/pmv2-test
+plenum-memory evaluate --benchmark pmv2 --memory models/memorilla/pmv2   --data data/plenum/pmv2-test --embeddings data/embeddings/qwen3-embedding-4b/pmv2/test --limit 20
+```
+
+Your own questions are scored the same way, answered from a user's memory:
+
+```bash
+# qa.jsonl: {"question": "...", "answer": "...", "user": "compliance"} per line ("choices" for choice scoring)
+plenum-memory evaluate --data qa.jsonl --scoring generation --retrieve 3
+```
+
+Each run writes `results/<name>/predictions.jsonl` as it goes (a rerun continues where it
+stopped; `--fresh` starts over) and `results/<name>/metrics.json` at the end, in percent.
+On a laptop CPU it is about a minute or two per row, so `--limit` a slice.
+
+Checked against the Python packages Memorilla scores with (`tools/check_metrics.py`, with
+`examples/metrics.rs`): BLEU-1/4 and ROUGE-1/L equal NLTK and rouge_score to 1e-16 on 300
+random pairs, and the Porter stemmer gives NLTK's stem for all 12,082 distinct words of 120
+PersonaMem-v2 rows. METEOR is not computed: it needs WordNet's synonym data.
+
+`--no-memory` runs the same decoder and prompts with no memory tokens and no passages, as a
+baseline; its results go to `results/<name>-no-memory/`.
+
+### First results (PersonaMem-v2 test, rows 0–19, Q4_K_M decoder)
+
+| Run | Accuracy |
+|---|---|
+| `pmv2` memory module (16 memory tokens, no passages) | 45.0% (9/20) |
+| `--no-memory` baseline | 45.0% (9/20) |
+| Gain | 0 points |
+
+Memory turned 5 questions right (rows 5, 10, 11, 15, 17) and 5 wrong (rows 2, 6, 14, 18,
+19). With 20 rows the uncertainty is about ±11 points, so this shows no measurable gain
+either way; it is not comparable with the paper's figure over all 5,000 rows, which used a
+full-precision decoder. A larger slice is needed before drawing conclusions.
+
 ## Not ported
 
-Training (`train.py`, the recipes, the RL code), evaluation and the benchmarks,
-modules with `retrieval_init` or document self-attention layers (none of the released
+Training (`train.py`, the recipes, the RL code), METEOR, the baselines of
+`evaluate_baselines.py`, modules with `retrieval_init` or document self-attention layers (none of the released
 checkpoints has them), and batching several questions at once.
 
 ## Layout
