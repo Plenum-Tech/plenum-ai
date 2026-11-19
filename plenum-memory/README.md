@@ -219,18 +219,19 @@ PersonaMem-v2 rows. METEOR is not computed: it needs WordNet's synonym data.
 `--no-memory` runs the same decoder and prompts with no memory tokens and no passages, as a
 baseline; its results go to `results/<name>-no-memory/`.
 
-### First results (PersonaMem-v2 test, rows 0–19, Q4_K_M decoder)
+### First results (PersonaMem-v2 test, rows 0–39, Q4_K_M decoder)
 
-| Run | Accuracy |
-|---|---|
-| `pmv2` memory module (16 memory tokens, no passages) | 45.0% (9/20) |
-| `--no-memory` baseline | 45.0% (9/20) |
-| Gain | 0 points |
+| Run | Rows 0–19 | Rows 20–39 | All 40 |
+|---|---|---|---|
+| `pmv2` memory module (16 memory tokens, no passages) | 9/20 | 9/20 | **45.0%** (18/40) |
+| `--no-memory` baseline | 9/20 | 3/20 | **30.0%** (12/40) |
+| Gain | 0 | +6 | **+15.0 points** |
 
-Memory turned 5 questions right (rows 5, 10, 11, 15, 17) and 5 wrong (rows 2, 6, 14, 18,
-19). With 20 rows the uncertainty is about ±11 points, so this shows no measurable gain
-either way; it is not comparable with the paper's figure over all 5,000 rows, which used a
-full-precision decoder. A larger slice is needed before drawing conclusions.
+Memory turned 14 questions right that the baseline missed and 8 wrong that it got right.
+With 40 rows each score is uncertain by about ±8 points, and a sign test on those 22
+disagreements gives p ≈ 0.29, so the gain is encouraging but not yet significant. Neither
+score is comparable with the paper's figure over all 5,000 rows, which used a
+full-precision decoder.
 
 ## Not ported
 
