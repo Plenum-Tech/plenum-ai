@@ -1,0 +1,17 @@
+{
+  "benchmark": "questions-no-memory",
+  "num_examples": 40,
+  "scores": {
+    "accuracy": 25.0
+  },
+  "setup": {
+    "decoder": "Qwen3 8B Awq Compatible Instruct",
+    "encoder": "Qwen3 Embedding 4B",
+    "max_new_tokens": 128,
+    "memory": false,
+    "memory_module": 16,
+    "note": "METEOR is not computed (it needs WordNet).",
+    "retrieved_passages": 0,
+    "system_prompt": "You are a helpful assistant."
+  }
+}

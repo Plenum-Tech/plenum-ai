@@ -237,6 +237,28 @@ The reports are in [`results/pmv2`](results/pmv2) and
 [`results/pmv2-no-memory`](results/pmv2-no-memory): `metrics.json` for the scores and
 `predictions.jsonl` for every question, answer, picked choice and whether it was right.
 
+### Company facts demo (Bishopsgate Tower, 40 questions, laptop CPU)
+
+153 facts from facilities test data (certificates, invoices, energy meters), one sentence
+each, were stored for one user with `add --no-chunk`. Then 40 four-choice questions about
+them were asked with `--retrieve 3` and with `--no-memory`, with `--scoring choice`.
+
+| Question type | With memory | `--no-memory` baseline |
+|---|---|---|
+| Certificate expiry dates | 14/15 | 2/15 |
+| Inspector names | 10/10 | 4/10 |
+| Invoice totals | 15/15 | 4/15 |
+| **All 40** | **97.5%** (39/40) | **25.0%** (10/40) |
+
+Memory turned 29 questions right that the baseline missed and none wrong (sign test
+p < 10⁻⁸). The baseline is at chance for four choices, as expected: it cannot know these
+facts. The questions were made from the stored facts, so this shows storing and recalling
+company facts, not reasoning beyond them. Storing took 32 minutes; questions took about
+3 minutes each with memory and 4 without.
+
+The reports are in [`results/hoistra-demo`](results/hoistra-demo) and
+[`results/hoistra-demo-no-memory`](results/hoistra-demo-no-memory).
+
 ## Not ported
 
 Training (`train.py`, the recipes, the RL code), METEOR, the baselines of
