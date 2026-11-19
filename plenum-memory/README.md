@@ -233,6 +233,10 @@ disagreements gives p ≈ 0.29, so the gain is encouraging but not yet significa
 score is comparable with the paper's figure over all 5,000 rows, which used a
 full-precision decoder.
 
+The reports are in [`results/pmv2`](results/pmv2) and
+[`results/pmv2-no-memory`](results/pmv2-no-memory): `metrics.json` for the scores and
+`predictions.jsonl` for every question, answer, picked choice and whether it was right.
+
 ## Not ported
 
 Training (`train.py`, the recipes, the RL code), METEOR, the baselines of
