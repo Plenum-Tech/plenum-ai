@@ -200,6 +200,18 @@ impl MemoryStack {
         Ok(Some(Recall { tokens: self.module.read(&mem.collection, &q)?, passages }))
     }
 
+    /// The k stored passages closest to a question, best first, with their cosine and their
+    /// index in the collection. No memory tokens are read and no threshold is applied: the
+    /// caller decides what is close enough (None when the user has no documents).
+    pub fn search(&self, user: &str, question: &str, k: usize) -> Result<Option<Vec<(f32, usize, String)>>, String> {
+        let Some(mem) = self.user_memory(user)? else { return Ok(None) };
+        let q = self.embed(question.trim())?;
+        let d = self.module.dim;
+        let mut scored: Vec<(f32, usize)> = (0..mem.docs.len()).map(|i| (plenum_engine::quant::dot(&q, &mem.embeddings[i * d..(i + 1) * d]), i)).collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(Some(scored.into_iter().take(k).map(|(s, i)| (s, i, mem.docs[i].clone())).collect()))
+    }
+
     /// The memory tokens for a question over a user's collection (None when it is empty).
     pub fn memory_tokens(&self, user: &str, question: &str) -> Result<Option<Vec<Vec<f32>>>, String> {
         Ok(self.recall(user, question, 0)?.map(|r| r.tokens))
@@ -394,6 +406,21 @@ impl Extension for MemoryStack {
                         "memory_embeddings": r.tokens,
                     })),
                     Ok(None) => ok(json!({"user": user_of(&v), "passages": [], "memory_embeddings": Value::Null})),
+                    Err(e) => bad(e),
+                }
+            }
+            ("POST", "/v1/memory/search") => {
+                let v = match parse() {
+                    Ok(v) => v,
+                    Err(e) => return bad(e),
+                };
+                let Some(q) = v.get("question").and_then(|q| q.as_str()) else { return bad("give \"question\": \"...\"".into()) };
+                let k = v.get("k").and_then(|k| k.as_u64()).unwrap_or(5) as usize;
+                match self.search(&user_of(&v), q, k) {
+                    Ok(hits) => ok(json!({
+                        "user": user_of(&v),
+                        "hits": hits.unwrap_or_default().iter().map(|(s, i, t)| json!({"similarity": s, "index": i, "text": t})).collect::<Vec<_>>(),
+                    })),
                     Err(e) => bad(e),
                 }
             }

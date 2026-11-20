@@ -74,6 +74,8 @@ SERVER
                                  \"retrieve\": K overrides --retrieve for the request
   POST /v1/memory/documents      {\"user\": \"U\", \"documents\": [\"...\"]} or {\"user\": \"U\", \"text\": \"...\"}
   POST /v1/memory/tokens         {\"user\": \"U\", \"question\": \"...\"} -> the 16 memory vectors and the passages
+  POST /v1/memory/search         {\"user\": \"U\", \"question\": \"...\", \"k\": N} -> the N closest entries, with
+                                 their similarity and index (no memory tokens, no threshold)
   POST /v1/memory/list           {\"user\": \"U\", \"limit\": N} -> the newest entries, with their index
   POST /v1/memory/forget         {\"user\": \"U\", \"index\": N} removes one entry
   POST /v1/memory/clear          {\"user\": \"U\"}
